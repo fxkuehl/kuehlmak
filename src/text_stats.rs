@@ -1,11 +1,14 @@
 use std::str::FromStr;
 use std::iter::FromIterator;
-use std::collections::HashMap;
 use std::ops::Index;
 use std::cmp::max;
 use serde::ser; // Can't use serde::ser::Serialize directly because I need the serde::Serialize macro
 use serde::ser::{Serializer, SerializeMap};
 use serde::Serialize;
+
+//use std::collections::HashMap;
+use std::collections::BTreeMap;
+type MyMap<K, V> = BTreeMap<K, V>;
 
 type Symbol = [char; 1];
 type Bigram = [char; 2];
@@ -13,13 +16,13 @@ type Trigram = [char; 3];
 
 #[derive(Debug)]
 struct NGramStats<T> {
-    map: HashMap<T, (usize, usize)>, // n-Gram counters+tokens in a hashmap
+    map: MyMap<T, (usize, usize)>,   // n-Gram counters+tokens in a hashmap
     list: Vec<(T, usize, usize)>,    // n-Gram list sorted by descending count
     total: usize,                    // Sum of all n-Grams counts
 }
 
 impl<T: Copy> NGramStats<T> {
-    fn from_map(map: HashMap<T, (usize, usize)>) -> Self {
+    fn from_map(map: MyMap<T, (usize, usize)>) -> Self {
         let mut total = 0usize; // Gets updated by the closure below
 
         // Construct list of all n-grams, calculate sum of all counts
@@ -75,9 +78,9 @@ impl FromStr for TextStats {
         let mut i = 0usize;
         let mut bigram = [' '; 2];
         let mut trigram = [' '; 3];
-        let mut s_map = HashMap::new();
-        let mut b_map = HashMap::new();
-        let mut t_map = HashMap::new();
+        let mut s_map = MyMap::new();
+        let mut b_map = MyMap::new();
+        let mut t_map = MyMap::new();
         let mut token = 0usize;
 
         // Build maps of symbols, bigrams and 3-grams of lower-case
