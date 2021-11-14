@@ -2,9 +2,9 @@ use std::str::FromStr;
 use std::iter::FromIterator;
 use std::ops::Index;
 use std::cmp::max;
-use serde::ser; // Can't use serde::ser::Serialize directly because I need the serde::Serialize macro
-use serde::ser::{Serializer, SerializeMap};
 use serde::Serialize;
+use serde::ser::{Serializer, SerializeMap};
+use serde::ser::Serialize as SerializeTrait;
 
 //use std::collections::HashMap;
 use std::collections::BTreeMap;
@@ -42,7 +42,7 @@ impl<T: Copy> NGramStats<T> {
     }
 }
 
-impl<T: Copy + IntoIterator<Item = char>> ser::Serialize for NGramStats<T> {
+impl<T: Copy + IntoIterator<Item = char>> SerializeTrait for NGramStats<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
