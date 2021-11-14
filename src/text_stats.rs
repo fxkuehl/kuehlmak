@@ -242,6 +242,28 @@ impl Index<usize> for TextStats {
 }
 
 impl TextStats {
+    pub fn filter<F>(self, f: F) -> Self
+    where
+        F: FnMut(char) -> bool
+    {
+        let mut f = f;
+
+        let s_map = self.iter_symbols()
+                        .filter(|&(s, _, _)| f(s[0]))
+                        .map(|&(s, count, _)| (s, (count, 0)))
+                        .collect();
+        let b_map = self.iter_bigrams()
+                        .filter(|&(b, _, _)| f(b[0]) && f(b[1]))
+                        .map(|&(b, count, _)| (b, (count, 0)))
+                        .collect();
+        let t_map = self.iter_trigrams()
+                        .filter(|&(t, _, _)| f(t[0]) && f(t[1]) && f(t[2]))
+                        .map(|&(t, count, _)| (t, (count, 0)))
+                        .collect();
+
+        Self::from_maps(s_map, b_map, t_map).unwrap()
+    }
+
     pub fn iter_symbols(&self)
         -> std::slice::Iter<(Symbol, usize, usize)> {self.s.iter()}
     pub fn iter_bigrams(&self)
@@ -504,6 +526,42 @@ mod tests {
                 println!("Expected error: '{}'", e);
                 assert!(e.to_string().starts_with("undefined symbol in trigram"));
             },
+        }
+    }
+
+    #[test]
+    fn filter() {
+        let filter_fn = char::is_alphabetic;
+        let filtered = TextStats::from_str(TEST_STRING).unwrap()
+            .filter(filter_fn);
+        let stats = TextStats::from_str(TEST_STRING).unwrap();
+
+        for &(s, counter, token) in stats.iter_symbols() {
+            if filter_fn(s[0]) {
+                assert_eq!(counter, filtered[s].0);
+                println!("  '{}': {} #{} (was #{})", s[0], counter, filtered[s].1, token);
+            } else {
+                assert_eq!(filtered.get_symbol(s), None);
+                println!("  '{}': None", s[0]);
+            }
+        }
+        for &(b, counter, token) in stats.iter_bigrams() {
+            if b.iter().copied().all(filter_fn) {
+                assert_eq!(counter, filtered[b].0);
+                println!("  '{}{}': {} #{} (was #{})", b[0], b[1], counter, filtered[b].1, token);
+            } else {
+                assert_eq!(filtered.get_bigram(b), None);
+                println!("  '{}{}': None", b[0], b[1]);
+            }
+        }
+        for &(t, counter, token) in stats.iter_trigrams() {
+            if t.iter().copied().all(filter_fn) {
+                assert_eq!(counter, filtered[t].0);
+                println!("  '{}{}{}': {} #{} (was #{})", t[0], t[1], t[2], counter, filtered[t].1, token);
+            } else {
+                assert_eq!(filtered.get_trigram(t), None);
+                println!("  '{}{}{}': None", t[0], t[1], t[2]);
+            }
         }
     }
 }
