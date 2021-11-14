@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::iter::FromIterator;
 use std::ops::Index;
 use std::cmp::max;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use serde::ser::{Serializer, SerializeMap};
 use serde::ser::Serialize as SerializeTrait;
 
@@ -56,7 +56,15 @@ impl<T: Copy + IntoIterator<Item = char>> SerializeTrait for NGramStats<T> {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Deserialize)]
+struct TextMaps {
+    symbols: MyMap<String, usize>,
+    bigrams: MyMap<String, usize>,
+    trigrams: MyMap<String, usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(try_from = "TextMaps")]
 pub struct TextStats {
     #[serde(rename = "symbols")]
     s: NGramStats<Symbol>,
@@ -70,8 +78,46 @@ pub struct TextStats {
     token_map: Vec<usize>,
 }
 
+impl TryFrom<TextMaps> for TextStats {
+    type Error = &'static str;
+
+    fn try_from(maps: TextMaps) -> Result<Self, Self::Error> {
+        let mut s_map = MyMap::new();
+        for (k, v) in maps.symbols {
+            let mut chars = k.chars();
+            let symbol = match (chars.next(), chars.next()) {
+                (Some(c), None) => [c],
+                _ => return Err("expected single-character key in `symbols` map"),
+            };
+            s_map.insert(symbol, (v, 0));
+        }
+
+        let mut b_map = MyMap::new();
+        for (k, v) in maps.bigrams {
+            let mut chars = k.chars();
+            let bigram = match (chars.next(), chars.next(), chars.next()) {
+                (Some(a), Some(b), None) => [a, b],
+                _ => return Err("expected two-character key in `bigrams` map"),
+            };
+            b_map.insert(bigram, (v, 0));
+        }
+
+        let mut t_map = MyMap::new();
+        for (k, v) in maps.trigrams {
+            let mut chars = k.chars();
+            let trigram = match (chars.next(), chars.next(), chars.next(), chars.next()) {
+                (Some(a), Some(b), Some(c), None) => [a, b, c],
+                _ => return Err("expected three-character key in `trigrams` map"),
+            };
+            t_map.insert(trigram, (v, 0));
+        }
+
+        Self::from_maps(s_map, b_map, t_map)
+    }
+}
+
 impl FromStr for TextStats {
-    type Err = ();
+    type Err = &'static str;
 
     fn from_str(text: &str) -> Result <Self, Self::Err> {
         let len = text.chars().count();
@@ -81,10 +127,9 @@ impl FromStr for TextStats {
         let mut s_map = MyMap::new();
         let mut b_map = MyMap::new();
         let mut t_map = MyMap::new();
-        let mut token = 0usize;
 
         // Build maps of symbols, bigrams and 3-grams of lower-case
-        // characters in the text. Assign tokens to characters.
+        // characters in the text.
         for c in text.chars() {
             i += 1;
             if i % 1000000 == 0 {
@@ -98,8 +143,7 @@ impl FromStr for TextStats {
                 trigram[2] = c;
                 bigram[0..2].copy_from_slice(&trigram[1..3]);
 
-                let (count, _) = s_map.entry(symbol).or_insert_with(
-                    || {token += 1; (0, token)});
+                let (count, _) = s_map.entry(symbol).or_insert((0, 0));
                 *count += 1;
                 if !(bigram[0].is_whitespace() || bigram[1].is_whitespace()) {
                     let (count, _) = b_map.entry(bigram).or_insert((0, 0));
@@ -112,26 +156,43 @@ impl FromStr for TextStats {
             }
         }
 
-        let token_base = token + 1;
-        let mut max_token = token;
+        Self::from_maps(s_map, b_map, t_map)
+    }
+}
+
+impl TextStats {
+    fn from_maps(mut s_map: MyMap<Symbol, (usize, usize)>,
+                 mut b_map: MyMap<Bigram, (usize, usize)>,
+                 mut t_map: MyMap<Trigram, (usize, usize)>)
+        -> Result<TextStats, &'static str>
+    {
+        // Set token values for symbols, 0 reserved as terminator
+        for ((_, token), i) in s_map.values_mut().zip(1..) {
+            *token = i;
+        }
+
+        let mut max_token = s_map.len();
+        let token_base = max_token + 1;
 
         // Derive token values for bigrams and 3-grams
-        for (&bigram, (_, token)) in b_map.iter_mut() {
-            let t0 = s_map[&[bigram[0]]].1;
-            let t1 = s_map[&[bigram[1]]].1;
-            *token = t1 * token_base + t0;
+        for (&[a, b], (_, token)) in b_map.iter_mut() {
+            *token = match (s_map.get(&[a]), s_map.get(&[b])) {
+                (Some((_, t0)), Some((_, t1))) => t1 * token_base + t0,
+                _ => return Err("undefined symbol in bigram"),
+            };
             max_token = max(max_token, *token);
         }
-        for (&trigram, (_, token)) in t_map.iter_mut() {
-            let t0 = s_map[&[trigram[0]]].1;
-            let t1 = s_map[&[trigram[1]]].1;
-            let t2 = s_map[&[trigram[2]]].1;
-            *token = (t2 * token_base + t1) * token_base + t0;
+        for (&[a, b, c], (_, token)) in t_map.iter_mut() {
+            *token = match (s_map.get(&[a]), s_map.get(&[b]), s_map.get(&[c])) {
+                (Some((_, t0)), Some((_, t1)), Some((_, t2)))
+                    => (t2 * token_base + t1) * token_base + t0,
+                _ => return Err("undefined symbol in trigram"),
+            };
             max_token = max(max_token, *token);
         }
 
         // Fill token map
-        let mut token_map: Vec<usize> = Vec::new();
+        let mut token_map = Vec::new();
         token_map.resize(max_token+1, 0);
         for &(count, token) in
                 s_map.values().chain(b_map.values()).chain(t_map.values()) {
@@ -371,12 +432,78 @@ mod tests {
                    [stats[['w']].1, stats[['e']].1, stats[['l']].1]);
     }
 
-    // Test serialization as json
     #[test]
     fn to_json() {
         let stats = TextStats::from_str(TEST_STRING).unwrap();
 
         let j = serde_json::to_string_pretty(&stats).expect("Serialization failed");
         println!("{}", j);
+    }
+
+    #[test]
+    fn from_json() {
+        let orig = TextStats::from_str(TEST_STRING).unwrap();
+
+        let j = serde_json::to_string(&orig).expect("Serialization failed");
+        let deser: TextStats = serde_json::from_str(&j).expect("Deserialization failed");
+
+        // Tokens may have changed. Only compare counts
+        for (symbol, counter, token) in deser.iter_symbols() {
+            println!("  '{}': {} #{} (was #{})", symbol[0], counter, token, orig[*symbol].1);
+            assert_eq!(*counter, orig[*symbol].0);
+        }
+        for (bigram, counter, token) in deser.iter_bigrams() {
+            println!("  '{}{}': {} #{} (was #{})", bigram[0], bigram[1], counter, token, orig[*bigram].1);
+            assert_eq!(*counter, orig[*bigram].0);
+        }
+        for (trigram, counter, token) in deser.iter_trigrams() {
+            println!("  '{}{}{}': {} #{} (was #{})", trigram[0], trigram[1], trigram[2],
+                     counter, token, orig[*trigram].1);
+            assert_eq!(*counter, orig[*trigram].0);
+        }
+    }
+
+    #[test]
+    fn from_bad_json() {
+        match serde_json::from_str::<TextStats>(
+                r#"{"symbols": {"aa": 3}, "bigrams": {"aa": 2}, "trigrams": {"aaa": 1}}"#) {
+            Ok(_) => panic!("Invalid symbol key not caught!"),
+            Err(e) => {
+                println!("Expected error: '{}'", e);
+                assert!(e.to_string().starts_with("expected single-character key"));
+            },
+        }
+        match serde_json::from_str::<TextStats>(
+                r#"{"symbols": {"a": 3}, "bigrams": {"aaa": 2}, "trigrams": {"aaa": 1}}"#) {
+            Ok(_) => panic!("Invalid bigram key not caught!"),
+            Err(e) => {
+                println!("Expected error: '{}'", e);
+                assert!(e.to_string().starts_with("expected two-character key"));
+            },
+        }
+        match serde_json::from_str::<TextStats>(
+                r#"{"symbols": {"a": 3}, "bigrams": {"aa": 2}, "trigrams": {"aa": 1}}"#) {
+            Ok(_) => panic!("Invalid trigram key not caught!"),
+            Err(e) => {
+                println!("Expected error: '{}'", e);
+                assert!(e.to_string().starts_with("expected three-character key"));
+            },
+        }
+        match serde_json::from_str::<TextStats>(
+                r#"{"symbols": {"a": 3}, "bigrams": {"ab": 2}, "trigrams": {"aaa": 1}}"#) {
+            Ok(_) => panic!("Undefined symbol in trigram not caught!"),
+            Err(e) => {
+                println!("Expected error: '{}'", e);
+                assert!(e.to_string().starts_with("undefined symbol in bigram"));
+            },
+        }
+        match serde_json::from_str::<TextStats>(
+                r#"{"symbols": {"a": 3}, "bigrams": {"aa": 2}, "trigrams": {"aab": 1}}"#) {
+            Ok(_) => panic!("Undefined symbol in trigram not caught!"),
+            Err(e) => {
+                println!("Expected error: '{}'", e);
+                assert!(e.to_string().starts_with("undefined symbol in trigram"));
+            },
+        }
     }
 }
