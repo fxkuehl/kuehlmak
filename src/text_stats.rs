@@ -10,9 +10,9 @@ use serde::ser::Serialize as SerializeTrait;
 use std::collections::BTreeMap;
 type MyMap<K, V> = BTreeMap<K, V>;
 
-type Symbol = [char; 1];
-type Bigram = [char; 2];
-type Trigram = [char; 3];
+pub type Symbol = [char; 1];
+pub type Bigram = [char; 2];
+pub type Trigram = [char; 3];
 
 #[derive(Debug)]
 struct NGramStats<T> {
@@ -280,6 +280,11 @@ impl TextStats {
     pub fn get_trigram(&self, index: Trigram) -> Option<&(usize, usize)> {
         self.t.map.get(&index)
     }
+
+    pub fn total_symbols(&self) -> u64 {self.s.total}
+    pub fn total_bigrams(&self) -> u64 {self.b.total}
+    pub fn total_trigrams(&self) -> u64 {self.t.total}
+    pub fn token_base(&self) -> usize {self.token_base}
 
     pub fn token_to_ngram(&self, mut token: usize) -> [usize; 3] {
         let mut ngram = [0; 3];

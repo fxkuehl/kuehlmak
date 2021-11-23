@@ -1,3 +1,3 @@
 mod text_stats;
 
-pub use text_stats::TextStats;
+pub use text_stats::{TextStats, Symbol, Bigram, Trigram};
