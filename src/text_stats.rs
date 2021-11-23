@@ -16,28 +16,28 @@ pub type Trigram = [char; 3];
 
 #[derive(Debug)]
 struct NGramStats<T> {
-    map: MyMap<T, (usize, usize)>,   // n-Gram counters+tokens in a hashmap
-    list: Vec<(T, usize, usize)>,    // n-Gram list sorted by descending count
-    total: usize,                    // Sum of all n-Grams counts
+    map: MyMap<T, (u64, usize)>,    // n-Gram counters+tokens in a hashmap
+    list: Vec<(T, u64, usize)>,     // n-Gram list sorted by descending count
+    total: u64,                     // Sum of all n-Grams counts
 }
 
 impl<T: Copy> NGramStats<T> {
-    fn from_map(map: MyMap<T, (usize, usize)>) -> Self {
-        let mut total = 0usize; // Gets updated by the closure below
+    fn from_map(map: MyMap<T, (u64, usize)>) -> Self {
+        let mut total = 0u64; // Gets updated by the closure below
 
         // Construct list of all n-grams, calculate sum of all counts
-        let mut list: Vec<(T, usize, usize)> =
+        let mut list: Vec<(T, u64, usize)> =
             map.iter().map(|(&ngram, &(count, token))| {
                 total += count;
                 (ngram, count, token)
             }).collect();
         // Sort by count, highest first
-        list.sort_by_key(|(_, count, _)| usize::MAX - count);
+        list.sort_by_key(|(_, count, _)| u64::MAX - count);
 
         Self {map, list, total}
     }
 
-    fn iter(&self) -> std::slice::Iter<(T, usize, usize)> {
+    fn iter(&self) -> std::slice::Iter<(T, u64, usize)> {
         self.list.iter()
     }
 }
@@ -58,9 +58,9 @@ impl<T: Copy + IntoIterator<Item = char>> SerializeTrait for NGramStats<T> {
 
 #[derive(Deserialize)]
 struct TextMaps {
-    symbols: MyMap<String, usize>,
-    bigrams: MyMap<String, usize>,
-    trigrams: MyMap<String, usize>,
+    symbols: MyMap<String, u64>,
+    bigrams: MyMap<String, u64>,
+    trigrams: MyMap<String, u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,7 +75,7 @@ pub struct TextStats {
     #[serde(skip)]
     token_base: usize,
     #[serde(skip)]
-    token_map: Vec<usize>,
+    token_map: Vec<u64>,
 }
 
 impl TryFrom<TextMaps> for TextStats {
@@ -161,9 +161,9 @@ impl FromStr for TextStats {
 }
 
 impl TextStats {
-    fn from_maps(mut s_map: MyMap<Symbol, (usize, usize)>,
-                 mut b_map: MyMap<Bigram, (usize, usize)>,
-                 mut t_map: MyMap<Trigram, (usize, usize)>)
+    fn from_maps(mut s_map: MyMap<Symbol, (u64, usize)>,
+                 mut b_map: MyMap<Bigram, (u64, usize)>,
+                 mut t_map: MyMap<Trigram, (u64, usize)>)
         -> Result<TextStats, &'static str>
     {
         // Set token values for symbols, 0 reserved as terminator
@@ -210,33 +210,33 @@ impl TextStats {
 }
 
 impl Index<Symbol> for TextStats {
-    type Output = (usize, usize);
+    type Output = (u64, usize);
 
-    fn index(&self, index: Symbol) -> &(usize, usize) {
+    fn index(&self, index: Symbol) -> &(u64, usize) {
         self.s.map.index(&index)
     }
 }
 
 impl Index<Bigram> for TextStats {
-    type Output = (usize, usize);
+    type Output = (u64, usize);
 
-    fn index(&self, index: Bigram) -> &(usize, usize) {
+    fn index(&self, index: Bigram) -> &(u64, usize) {
         self.b.map.index(&index)
     }
 }
 
 impl Index<Trigram> for TextStats {
-    type Output = (usize, usize);
+    type Output = (u64, usize);
 
-    fn index(&self, index: Trigram) -> &(usize, usize) {
+    fn index(&self, index: Trigram) -> &(u64, usize) {
         self.t.map.index(&index)
     }
 }
 
 impl Index<usize> for TextStats {
-    type Output = usize;
+    type Output = u64;
 
-    fn index(&self, index: usize) -> &usize {
+    fn index(&self, index: usize) -> &u64 {
         self.token_map.index(index)
     }
 }
@@ -265,19 +265,19 @@ impl TextStats {
     }
 
     pub fn iter_symbols(&self)
-        -> std::slice::Iter<(Symbol, usize, usize)> {self.s.iter()}
+        -> std::slice::Iter<(Symbol, u64, usize)> {self.s.iter()}
     pub fn iter_bigrams(&self)
-        -> std::slice::Iter<(Bigram, usize, usize)> {self.b.iter()}
+        -> std::slice::Iter<(Bigram, u64, usize)> {self.b.iter()}
     pub fn iter_trigrams(&self)
-        -> std::slice::Iter<(Trigram, usize, usize)> {self.t.iter()}
+        -> std::slice::Iter<(Trigram, u64, usize)> {self.t.iter()}
 
-    pub fn get_symbol(&self, index: Symbol) -> Option<&(usize, usize)> {
+    pub fn get_symbol(&self, index: Symbol) -> Option<&(u64, usize)> {
         self.s.map.get(&index)
     }
-    pub fn get_bigram(&self, index: Bigram) -> Option<&(usize, usize)> {
+    pub fn get_bigram(&self, index: Bigram) -> Option<&(u64, usize)> {
         self.b.map.get(&index)
     }
-    pub fn get_trigram(&self, index: Trigram) -> Option<&(usize, usize)> {
+    pub fn get_trigram(&self, index: Trigram) -> Option<&(u64, usize)> {
         self.t.map.get(&index)
     }
 
@@ -315,7 +315,7 @@ mod tests {
         let lower = TEST_STRING.to_lowercase();
         let stats = TextStats::from_str(TEST_STRING).unwrap();
 
-        let mut prev = usize::MAX;
+        let mut prev = u64::MAX;
         for (symbol, counter, token) in stats.iter_symbols() {
             println!("  '{}': {} #{}", symbol[0], counter, token);
             assert!(lower.contains(symbol[0]));
@@ -324,7 +324,7 @@ mod tests {
 
             // also check the symbol counts, while we're at it
             let matching = lower.chars().filter(|c| *c == symbol[0]).count();
-            assert_eq!(matching, *counter);
+            assert_eq!(matching as u64, *counter);
         }
     }
 
@@ -334,7 +334,7 @@ mod tests {
         let lower = TEST_STRING.to_lowercase();
         let stats = TextStats::from_str(TEST_STRING).unwrap();
 
-        let mut prev = usize::MAX;
+        let mut prev = u64::MAX;
         for (bigram, counter, token) in stats.iter_bigrams() {
             println!("  '{}{}': {} #{}", bigram[0], bigram[1], counter, token);
             assert!(lower.contains(&bigram[..]));
@@ -349,7 +349,7 @@ mod tests {
         let lower = TEST_STRING.to_lowercase();
         let stats = TextStats::from_str(TEST_STRING).unwrap();
 
-        let mut prev = usize::MAX;
+        let mut prev = u64::MAX;
         for (trigram, counter, token) in stats.iter_trigrams() {
             println!("  '{}{}{}': {} #{}", trigram[0], trigram[1], trigram[2],
                      counter, token);
