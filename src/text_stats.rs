@@ -191,12 +191,21 @@ impl TextStats {
             max_token = max(max_token, *token);
         }
 
-        // Fill token map
+        // Fill token map. If the token base is too large, only populate
+        // it with individual symbols
         let mut token_map = Vec::new();
-        token_map.resize(max_token+1, 0);
-        for &(count, token) in
-                s_map.values().chain(b_map.values()).chain(t_map.values()) {
-            token_map[token] = count;
+        if token_base <= 256 {
+            token_map.resize(max_token+1, 0);
+            for &(count, token) in s_map.values()
+                            .chain(b_map.values())
+                            .chain(t_map.values()) {
+                token_map[token] = count;
+            }
+        } else {
+            token_map.resize(token_base, 0);
+            for &(count, token) in s_map.values() {
+                token_map[token] = count;
+            }
         }
 
         Ok(TextStats {
