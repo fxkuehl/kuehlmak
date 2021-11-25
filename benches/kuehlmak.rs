@@ -2,7 +2,9 @@
 extern crate bencher;
 
 use kuehlmak::TextStats;
+use kuehlmak::{Layout, EvalModel, KuehlmakModel};
 use std::str::FromStr;
+use std::fs;
 
 use bencher::Bencher;
 
@@ -10,6 +12,12 @@ static TEST_STRING : &str = "Hello, world! Be well.
 Some more text to make the hash tables a bit bigger/+-sized.
 Extremely conspicuous excess of foreign words: Producing copious
 variety of n-grams*. (Just zero questions.)";
+
+static QWERTY: Layout = [
+    ['q','Q'],['w','W'],['e','E'],['r','R'],['t','T'],['y','Y'],['u','U'],['i','I'],['o','O'],['p','P'],
+    ['a','A'],['s','S'],['d','D'],['f','F'],['g','G'],['h','H'],['j','J'],['k','K'],['l','L'],[';',':'],
+    ['z','Z'],['x','X'],['c','C'],['v','V'],['b','B'],['n','N'],['m','M'],[',','<'],['.','>'],['/','?']
+];
 
 fn get_symbol(bench: &mut Bencher) {
     let stats = TextStats::from_str(TEST_STRING).unwrap();
@@ -65,5 +73,33 @@ fn index_token(bench: &mut Bencher) {
     })
 }
 
-benchmark_group!(benches, get_symbol, get_bigram, get_trigram, index_token);
-benchmark_main!(benches);
+fn eval_layout(bench: &mut Bencher) {
+    let alphabet: String = QWERTY.iter().flatten().collect();
+    let stats = TextStats::from_str(TEST_STRING).unwrap()
+        .filter(|c| alphabet.contains(c));
+    let kuehlmak_model = KuehlmakModel::new();
+    bench.iter( || {
+        let _scores = kuehlmak_model.eval_layout(&QWERTY, &stats);
+    })
+}
+
+fn eval_layout_json(bench: &mut Bencher) {
+    if let Ok(json) = fs::read_to_string("benches/bench_text.json") {
+        if let Ok(stats) = serde_json::from_str::<TextStats>(&json) {
+            let alphabet: String = QWERTY.iter().flatten().collect();
+            let stats = stats.filter(|c| alphabet.contains(c));
+            let kuehlmak_model = KuehlmakModel::new();
+            bench.iter( || {
+                let _scores = kuehlmak_model.eval_layout(&QWERTY, &stats);
+            });
+        } else {
+            eprintln!("Deserialization failed");
+        }
+    } else {
+        eprintln!("Reading JSON file failed");
+    }
+}
+
+benchmark_group!(text, get_symbol, get_bigram, get_trigram, index_token);
+benchmark_group!(eval, eval_layout, eval_layout_json);
+benchmark_main!(text, eval);
