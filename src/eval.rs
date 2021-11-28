@@ -1,4 +1,5 @@
 use super::{TextStats, Bigram, Trigram};
+use std::io;
 
 // Layout: 2 chars per key (normal/shifted), 10 keys per row, 3 rows
 pub type Layout = [[char; 2]; 30];
@@ -25,15 +26,23 @@ struct KeyProps {
     cost: f32,
 }
 
-// Keyboard evaluation model that can be reused for evaluating multiple
-// keyboard layouts of the same type.
-pub trait EvalModel {
-    type Scores;
-
-    fn eval_layout(&self, layout: &Layout, ts: &TextStats) -> Self::Scores;
+pub trait EvalScores {
+    fn write<W>(&self, w: &mut W) -> io::Result<()>
+        where W: io::Write;
+    fn total(&self) -> f64;
 }
 
-pub struct KuehlmakScores {
+// Keyboard evaluation model that can be reused for evaluating multiple
+// keyboard layouts of the same type.
+pub trait EvalModel<'a> {
+    type Scores: EvalScores;
+
+    fn eval_layout(&'a self, layout: &'a Layout, ts: &TextStats) -> Self::Scores;
+}
+
+pub struct KuehlmakScores<'a> {
+    model: &'a KuehlmakModel,
+    layout: &'a Layout,
     token_keymap: Vec<u8>,
     strokes: u64,
     heatmap: [u64; 30],
@@ -48,17 +57,133 @@ pub struct KuehlmakScores {
     total: f64,
 }
 
+impl<'a> EvalScores for KuehlmakScores<'a> {
+    fn write<W>(&self, w: &mut W) -> io::Result<()>
+    where W: io::Write {
+        let norm = 1000.0 / self.strokes as f64;
+        let mut fh = [0u64; 8];
+        for (&count, props) in
+                self.heatmap.iter().zip(self.model.key_props.iter()) {
+            fh[props.finger as usize] += count;
+        }
+        let mut fh_iter = fh.iter().map(|&h| h as f64 * norm);
+        let mut hh_iter = fh.chunks(4)
+                            .map(|s| s.iter().sum::<u64>() as f64 * norm);
+        let mut ft_iter = self.finger_travel.iter().map(|&t| t * norm);
+        let mut ht_iter = self.finger_travel.chunks(4)
+                              .map(|s| s.iter().sum::<f64>() * norm);
+        let travel = self.finger_travel.iter().sum::<f64>() * norm;
+
+        let key_space = match self.model.board_type {
+                KeyboardType::Ortho => [["", "  |  ", ""]; 3],
+                KeyboardType::ANSI =>
+                    [[" ", "", "    "],
+                     ["  ", "", "   "],
+                     ["    ", "", " "]],
+                KeyboardType::ISO =>
+                    [[" ", " ", "   "],
+                     ["  ", " ", "  "],
+                     ["", "     ", ""]],
+            };
+
+        let mut layout_iter = self.layout.iter();
+        let mut write_5keys = |w: &mut W|
+            layout_iter.by_ref().take(5)
+                       .map(|&[a, b]| match b.to_lowercase().next() {
+                           Some(l) if l == a => write!(w, "[ {}]", a),
+                           _                 => write!(w, "[{}{}]", a, b),
+                       }).fold(Ok(()), io::Result::and);
+        let mut write_key_row = |w: &mut W, [prefix,sep,suffix]: [&str; 3]| {
+            w.write_all(prefix.as_bytes())?;
+            write_5keys(w)?;
+            w.write_all(sep.as_bytes())?;
+            write_5keys(w)?;
+            writeln!(w, "{}", suffix)
+        };
+
+        let mut heat_iter = self.heatmap.iter();
+        let mut write_5heats = |w: &mut W|
+            heat_iter.by_ref().take(5)
+                     .map(|&h| write!(w, "{:3.0} ", h as f64 * norm))
+                     .fold(Ok(()), io::Result::and);
+        let mut write_heat_row = |w: &mut W, [prefix,sep,suffix]: [&str; 3]| {
+            w.write_all(prefix.as_bytes())?;
+            write_5heats(w)?;
+            w.write_all(sep.as_bytes())?;
+            write_5heats(w)?;
+            writeln!(w, "{}", suffix)
+        };
+
+        write!(w, "Effort {:6.4} Imbalance {:6.2}%   |",
+               self.effort, self.imbalance * 100.0)?;
+        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}=   {:3.0}|",
+               fh_iter.next().unwrap(), fh_iter.next().unwrap(),
+               fh_iter.next().unwrap(), fh_iter.next().unwrap(),
+               hh_iter.next().unwrap())?;
+        writeln!(w, "{:3.0}  ={:3.0}+{:3.0}+{:3.0}+{:3.0} ",
+                 hh_iter.next().unwrap(),
+                 fh_iter.next().unwrap(), fh_iter.next().unwrap(),
+                 fh_iter.next().unwrap(), fh_iter.next().unwrap())?;
+
+        write!(w, "Travel {:6.4} ({:6.2})            |",
+               self.travel, travel)?;
+        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}=   {:3.0}|",
+               ft_iter.next().unwrap(), ft_iter.next().unwrap(),
+               ft_iter.next().unwrap(), ft_iter.next().unwrap(),
+               ht_iter.next().unwrap())?;
+        writeln!(w, "{:3.0}  ={:3.0}+{:3.0}+{:3.0}+{:3.0} ",
+                 ht_iter.next().unwrap(),
+                 ft_iter.next().unwrap(), ft_iter.next().unwrap(),
+                 ft_iter.next().unwrap(), ft_iter.next().unwrap())?;
+
+        write!(w, "  SameFing RowJump  Fast   Tiring |")?;
+        write_key_row(w, key_space[0])?;
+
+        write!(w, "2: {:6.2}  {:6.2}  {:6.2}  {:6.2} |",
+               self.bigram_counts[BIGRAM_SAME_FINGER] as f64 * norm,
+               self.bigram_counts[BIGRAM_ROW_JUMPING] as f64 * norm,
+               self.bigram_counts[BIGRAM_FAST] as f64 * norm,
+               self.bigram_counts[BIGRAM_TIRING] as f64 * norm)?;
+        write_heat_row(w, key_space[0])?;
+
+        write!(w, "3: {:6.2}  {:6.2}  {:6.2}  {:6.2} |",
+               self.trigram_counts[TRIGRAM_SAME_FINGER] as f64 * norm,
+               self.trigram_counts[TRIGRAM_ROW_JUMPING] as f64 * norm,
+               self.trigram_counts[TRIGRAM_FAST] as f64 * norm,
+               self.trigram_counts[TRIGRAM_REVERSING] as f64 * norm)?;
+        write_key_row(w, key_space[1])?;
+
+        write!(w, "                        Reversing |")?;
+        write_heat_row(w, key_space[1])?;
+
+        write!(w, "Total+Constraints   {:6.4}+{:6.4} |", self.total, 0.0)?;
+        write_key_row(w, key_space[2])?;
+
+        write!(w, "Hand runs TODO                    |")?;
+        write_heat_row(w, key_space[2])?;
+
+        writeln!(w)?;
+
+        Ok(())
+    }
+
+    fn total(&self) -> f64 {self.total}
+}
+
 pub struct KuehlmakModel {
+    board_type: KeyboardType,
     key_props: [KeyProps; 30],
     bigram_types: [[u8; 30]; 30],
     trigram_types: [[[u8; 30]; 30]; 30],
 }
 
-impl EvalModel for KuehlmakModel {
-    type Scores = KuehlmakScores;
+impl<'a> EvalModel<'a> for KuehlmakModel {
+    type Scores = KuehlmakScores<'a>;
 
-    fn eval_layout(&self, layout: &Layout, ts: &TextStats) -> Self::Scores {
+    fn eval_layout(&'a self, layout: &'a Layout, ts: &TextStats) -> Self::Scores {
         let mut scores = KuehlmakScores {
+            model: self,
+            layout,
             token_keymap: Vec::new(),
             strokes: 0,
             heatmap: [0; 30],
@@ -259,8 +384,9 @@ impl KuehlmakModel {
     }
 
     pub fn new() -> KuehlmakModel {
+        let board_type = KeyboardType::Ortho;
         let mut i = 0;
-        let mut k = || Self::key_props({i += 1; i - 1}, KeyboardType::Ortho);
+        let mut k = || Self::key_props({i += 1; i - 1}, board_type);
         let key_props = [
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
@@ -388,6 +514,7 @@ impl KuehlmakModel {
         }
 
         KuehlmakModel {
+            board_type,
             key_props,
             bigram_types,
             trigram_types,
