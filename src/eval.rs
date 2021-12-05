@@ -279,8 +279,11 @@ impl KuehlmakModel {
             scores.finger_travel[props.finger as usize] +=
                 props.d_abs as f64 * count as f64;
         }
+        let orig_finger_travel = scores.finger_travel;
 
-        let percentile = ts.total_bigrams() * 90 / 100;
+        let precision = 0.9;
+
+        let percentile = (ts.total_bigrams() as f64 * precision) as u64;
         let mut total = 0;
         for &(bigram, count, token) in ts.iter_bigrams() {
             if total > percentile {
@@ -311,8 +314,17 @@ impl KuehlmakModel {
                     (props.d_rel[k0] - props.d_abs) as f64 * count as f64;
             }
         }
+        for count in scores.bigram_counts.iter_mut() {
+            *count = *count * ts.total_bigrams() / total;
+        }
+        for (travel, orig) in scores.finger_travel.iter_mut()
+                                    .zip(orig_finger_travel) {
+            *travel += (*travel - orig) * (1.0 - precision);
+        }
+        let orig_finger_travel = scores.finger_travel;
 
-        let percentile = ts.total_trigrams() * 50 / 100;
+        let precision = precision.powi(2);
+        let percentile = (ts.total_trigrams() as f64 * precision) as u64;
         let mut total = 0;
         for &(trigram, count, token) in ts.iter_trigrams() {
             if total > percentile {
@@ -347,6 +359,13 @@ impl KuehlmakModel {
                         (props.d_rel[k0] - props.d_abs) as f64 * count as f64;
                 }
             }
+        }
+        for count in scores.trigram_counts.iter_mut() {
+            *count = *count * ts.total_trigrams() / total;
+        }
+        for (travel, orig) in scores.finger_travel.iter_mut()
+                                    .zip(orig_finger_travel) {
+            *travel += (*travel - orig) * (1.0 - precision);
         }
     }
 
