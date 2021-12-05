@@ -1,5 +1,5 @@
 use kuehlmak::TextStats;
-use kuehlmak::{Layout, EvalModel, EvalScores, KuehlmakModel};
+use kuehlmak::{Layout, EvalModel, EvalScores, KuehlmakModel, Anneal};
 //use std::str::FromStr;
 use std::io;
 use std::fs;
@@ -21,5 +21,18 @@ fn main() {
 
     let scores = kuehlmak_model.eval_layout(&QWERTY, &stats);
 
-    scores.write(&mut io::stdout()).unwrap();
+    let stdout = &mut io::stdout();
+    scores.write(stdout).unwrap();
+
+    let mut anneal = Anneal::new(&kuehlmak_model, &stats, &QWERTY, false,
+                                 10000);
+    anneal.write_stats(stdout).unwrap();
+    loop {
+        if let Some(scores) = anneal.next() {
+            anneal.write_stats(stdout).unwrap();
+            scores.write(stdout).unwrap();
+        } else {
+            break;
+        }
+    }
 }
