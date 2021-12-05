@@ -29,20 +29,22 @@ struct KeyProps {
 pub trait EvalScores {
     fn write<W>(&self, w: &mut W) -> io::Result<()>
         where W: io::Write;
+    fn layout(&self) -> Layout;
     fn total(&self) -> f64;
 }
 
 // Keyboard evaluation model that can be reused for evaluating multiple
 // keyboard layouts of the same type.
 pub trait EvalModel<'a> {
-    type Scores: EvalScores;
+    type Scores: EvalScores + Clone;
 
-    fn eval_layout(&'a self, layout: &'a Layout, ts: &TextStats) -> Self::Scores;
+    fn eval_layout(&'a self, layout: &Layout, ts: &TextStats) -> Self::Scores;
 }
 
+#[derive(Clone)]
 pub struct KuehlmakScores<'a> {
     model: &'a KuehlmakModel,
-    layout: &'a Layout,
+    layout: Layout,
     token_keymap: Vec<u8>,
     strokes: u64,
     heatmap: [u64; 30],
@@ -55,6 +57,14 @@ pub struct KuehlmakScores<'a> {
     travel: f64,
     imbalance: f64,
     total: f64,
+}
+
+#[derive(Clone, Copy)]
+pub struct KuehlmakModel {
+    board_type: KeyboardType,
+    key_props: [KeyProps; 30],
+    bigram_types: [[u8; 30]; 30],
+    trigram_types: [[[u8; 30]; 30]; 30],
 }
 
 impl<'a> EvalScores for KuehlmakScores<'a> {
@@ -162,28 +172,20 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         write!(w, "Hand runs TODO                    |")?;
         write_heat_row(w, key_space[2])?;
 
-        writeln!(w)?;
-
         Ok(())
     }
 
+    fn layout(&self) -> Layout {self.layout}
     fn total(&self) -> f64 {self.total}
-}
-
-pub struct KuehlmakModel {
-    board_type: KeyboardType,
-    key_props: [KeyProps; 30],
-    bigram_types: [[u8; 30]; 30],
-    trigram_types: [[[u8; 30]; 30]; 30],
 }
 
 impl<'a> EvalModel<'a> for KuehlmakModel {
     type Scores = KuehlmakScores<'a>;
 
-    fn eval_layout(&'a self, layout: &'a Layout, ts: &TextStats) -> Self::Scores {
+    fn eval_layout(&'a self, layout: &Layout, ts: &TextStats) -> Self::Scores {
         let mut scores = KuehlmakScores {
             model: self,
-            layout,
+            layout: *layout,
             token_keymap: Vec::new(),
             strokes: 0,
             heatmap: [0; 30],
