@@ -19,16 +19,19 @@ fn main() {
 
     let kuehlmak_model = KuehlmakModel::new();
 
-    let scores = kuehlmak_model.eval_layout(&QWERTY, &stats);
+    let scores = kuehlmak_model.eval_layout(&QWERTY, &stats, 1.0);
 
     let stdout = &mut io::stdout();
     scores.write(stdout).unwrap();
 
-    let mut anneal = Anneal::new(&kuehlmak_model, &stats, &QWERTY, false,
+    let mut anneal = Anneal::new(&kuehlmak_model, &stats, QWERTY, false,
                                  10000);
-    anneal.write_stats(stdout).unwrap();
     loop {
         if let Some(scores) = anneal.next() {
+            // VT100: cursor up 8 rows
+            print!("\x1b[8A");
+            // VT100 clear line (top row of the last keymap)
+            print!("\x1b[2K");
             anneal.write_stats(stdout).unwrap();
             scores.write(stdout).unwrap();
         } else {

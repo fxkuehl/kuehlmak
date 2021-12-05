@@ -13,10 +13,11 @@ where M: EvalModel<'a>
     noise: f64,
     noise_step: f64,
     noise_floor: f64,
-    cur_scores: M::Scores,
+    precision: f64,
+    cur_layout: Layout,
     best_scores: M::Scores,
+    real_scores: M::Scores,
     steps: u64,
-    best_steps: u64,
     steps_per_iter: u64,
     rng: SmallRng,
 }
@@ -25,28 +26,24 @@ impl<'a, M> Anneal<'a, M>
 where M: EvalModel<'a>
 {
     pub fn new(model: &'a M, text: &'a TextStats,
-               layout: &Layout, shuffle: bool, steps_per_iter: u64) -> Self {
+               layout: Layout, shuffle: bool, steps_per_iter: u64) -> Self {
         let mut rng = SmallRng::from_entropy();
+        let mut layout = layout;
 
-        let scores = match shuffle {
-            true  => {
-                let mut shuffled = *layout;
-
-                shuffled.shuffle(&mut rng);
-                model.eval_layout(&shuffled, text)
-            }
-            false => model.eval_layout(layout, text)
-        };
+        if shuffle {
+            layout.shuffle(&mut rng);
+        }
 
         Anneal {
             model, text,
-            noise: 0.1,
+            noise: 0.2,
             noise_step: 0.001,
             noise_floor: 0.001,
-            cur_scores: scores.clone(),
-            best_scores: scores,
+            precision: 0.0,
+            cur_layout: layout,
+            best_scores: model.eval_layout(&layout, text, 0.0),
+            real_scores: model.eval_layout(&layout, text, 1.0),
             steps: 0,
-            best_steps: 0,
             steps_per_iter,
             rng,
         }
@@ -54,7 +51,9 @@ where M: EvalModel<'a>
 
     pub fn write_stats<W>(&self, w: &mut W) -> io::Result<()>
     where W: io::Write {
-        writeln!(w, "{:.4} {:.10}", self.noise, self.noise_step)
+        writeln!(w, "{:.4} {:.10} {:.3} {:6.4}",
+                 self.noise, self.noise_step, self.precision,
+                 self.best_scores.total())
     }
 }
 
@@ -77,43 +76,66 @@ where M: EvalModel<'a>
 
         while self.noise > self.noise_floor {
             if self.steps - start >= self.steps_per_iter {
+                // We haven't found a better solution in steps_per_iter
+                // steps. Reduce noise and increase noise step to speed
+                // up progress or termination
                 self.noise *= 1.0 - self.noise_step;
 
                 if self.noise_step < 0.1 {
                     self.noise_step *= 2.0f64.sqrt();
                 }
 
-                return Some(self.best_scores.clone());
+                self.update_precision(self.noise_step*0.1);
+
+                return Some(self.real_scores.clone());
             }
             self.steps += 1;
 
             let layout = self.mutate();
-            let scores = self.model.eval_layout(&layout, self.text);
-            let noisy_score = scores.total() - self.noise;
+            let scores = self.model.eval_layout(&layout, self.text,
+                                                self.precision);
 
-            if noisy_score >= self.best_scores.total() {
-                if scores.total() - 5.0*self.noise > self.best_scores.total() {
-                    // We're stuck in a local optimum with little hope of
-                    // getting back out. Reset to last know global optimum
-                    self.cur_scores = self.best_scores.clone();
-                }
+            if scores.total() > self.best_scores.total() + 5.0*self.noise {
+                // We're stuck in a local optimum with little hope of
+                // getting back out. Reset to last know global optimum
+                self.cur_layout = self.best_scores.layout();
+                continue;
+            }
+            if scores.total() >= self.best_scores.total() + self.noise {
                 continue;
             }
 
-            self.cur_scores = scores.clone();
-            if scores.total() < self.best_scores.total() {
+            self.cur_layout = layout;
+
+            if scores.total() >= self.best_scores.total() {
+                continue;
+            }
+
+            let real_scores = self.model.eval_layout(&layout, self.text, 1.0);
+            if real_scores.total() > self.real_scores.total() {
+                // The new layout is not actually an improvement. Increase
+                // precision. The adjustment is proportional to the
+                // error of the imprecise score and inversely proportional
+                // to the noise
+                let d = (real_scores.total() - scores.total()).abs()
+                      / self.noise;
+
+                self.update_precision(d.min(0.1));
+            } else {
                 // Improving the score is like going to a lower energy state,
                 // which is exothermic. This allows finding more paths from
                 // the new best solution.
-                self.noise += self.best_scores.total() - scores.total();
-
-                self.best_scores = scores.clone();
-                self.best_steps = self.steps;
-
+                self.noise += self.real_scores.total() - real_scores.total();
+                // Decrease noise step, allowing even more incremental
+                // incremental improvements at this noise level
                 if self.noise_step > 0.000001 {
                     self.noise_step *= 0.25;
                 }
-                return Some(scores);
+
+                self.best_scores = scores;
+                self.real_scores = real_scores.clone();
+
+                return Some(real_scores);
             }
         }
         None
@@ -123,6 +145,15 @@ where M: EvalModel<'a>
 impl<'a, M> Anneal<'a, M>
 where M: EvalModel<'a>
 {
+    fn update_precision(&mut self, d: f64) {
+        self.precision += (1.0 - self.precision) * d;
+
+        // Reevaluate the best known layout with updated precision
+        self.best_scores = self.model.eval_layout(&self.best_scores.layout(),
+                                                  self.text,
+                                                  self.precision);
+    }
+
     fn sample2(&mut self, r: Range<usize>)
     -> (usize, usize) {
         let b: usize = self.rng.gen_range(r.start..(r.end - 1));
@@ -147,18 +178,16 @@ where M: EvalModel<'a>
             },
             _ => panic!(),
         };
-        let mut layout = self.cur_scores.layout();
-        let tmp = layout[a];
+        let mut layout = self.cur_layout;
         layout[a] = layout[b];
-        layout[b] = tmp;
+        layout[b] = self.cur_layout[a];
         layout
     }
     fn swap_keys(&mut self) -> Layout {
         let (a, b) = self.sample2(0..30);
-        let mut layout = self.cur_scores.layout();
-        let tmp = layout[a];
+        let mut layout = self.cur_layout;
         layout[a] = layout[b];
-        layout[b] = tmp;
+        layout[b] = self.cur_layout[a];
         layout
     }
     fn mutate(&mut self) -> Layout {

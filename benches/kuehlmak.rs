@@ -79,7 +79,7 @@ fn eval_layout(bench: &mut Bencher) {
         .filter(|c| alphabet.contains(c));
     let kuehlmak_model = KuehlmakModel::new();
     bench.iter( || {
-        let _scores = kuehlmak_model.eval_layout(&QWERTY, &stats);
+        let _scores = kuehlmak_model.eval_layout(&QWERTY, &stats, 1.0);
     })
 }
 
@@ -90,7 +90,7 @@ fn eval_layout_json(bench: &mut Bencher) {
             let stats = stats.filter(|c| alphabet.contains(c));
             let kuehlmak_model = KuehlmakModel::new();
             bench.iter( || {
-                let _scores = kuehlmak_model.eval_layout(&QWERTY, &stats);
+                let _scores = kuehlmak_model.eval_layout(&QWERTY, &stats, 1.0);
             });
         } else {
             eprintln!("Deserialization failed");

@@ -38,7 +38,8 @@ pub trait EvalScores {
 pub trait EvalModel<'a> {
     type Scores: EvalScores + Clone;
 
-    fn eval_layout(&'a self, layout: &Layout, ts: &TextStats) -> Self::Scores;
+    fn eval_layout(&'a self, layout: &Layout, ts: &TextStats,
+                   precision: f64) -> Self::Scores;
 }
 
 #[derive(Clone)]
@@ -182,7 +183,8 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
 impl<'a> EvalModel<'a> for KuehlmakModel {
     type Scores = KuehlmakScores<'a>;
 
-    fn eval_layout(&'a self, layout: &Layout, ts: &TextStats) -> Self::Scores {
+    fn eval_layout(&'a self, layout: &Layout, ts: &TextStats,
+                   precision: f64) -> Self::Scores {
         let mut scores = KuehlmakScores {
             model: self,
             layout: *layout,
@@ -211,7 +213,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
         }
 
         self.calc_effort(&mut scores);
-        self.calc_ngrams(ts, &mut scores);
+        self.calc_ngrams(ts, &mut scores, 0.9 + precision * 0.1);
         self.score_travel(&mut scores);
         self.score_imbalance(&mut scores);
 
@@ -265,7 +267,8 @@ impl KuehlmakModel {
                                    .sqrt() / scores.strokes as f64;
     }
 
-    fn calc_ngrams(&self, ts: &TextStats, scores: &mut KuehlmakScores) {
+    fn calc_ngrams(&self, ts: &TextStats, scores: &mut KuehlmakScores,
+                   precision: f64) {
         // Initial estimate of finger travel: from home position to key
         // neglecting the way back to home position, since that is just
         // relaxing the finger.
@@ -280,8 +283,6 @@ impl KuehlmakModel {
                 props.d_abs as f64 * count as f64;
         }
         let orig_finger_travel = scores.finger_travel;
-
-        let precision = 0.9;
 
         let percentile = (ts.total_bigrams() as f64 * precision) as u64;
         let mut total = 0;
