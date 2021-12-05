@@ -23,7 +23,7 @@ struct KeyProps {
     finger: u8,
     d_abs: f32,
     d_rel: [f32; 30],
-    cost: f32,
+    cost: u8,
 }
 
 pub trait EvalScores {
@@ -40,6 +40,7 @@ pub trait EvalModel<'a> {
 
     fn eval_layout(&'a self, layout: &Layout, ts: &TextStats,
                    precision: f64) -> Self::Scores;
+    fn key_cost_ranking(&'a self) -> &'a [usize; 30];
 }
 
 #[derive(Clone)]
@@ -66,6 +67,7 @@ pub struct KuehlmakModel {
     key_props: [KeyProps; 30],
     bigram_types: [[u8; 30]; 30],
     trigram_types: [[[u8; 30]; 30]; 30],
+    key_cost_ranking: [usize; 30],
 }
 
 impl<'a> EvalScores for KuehlmakScores<'a> {
@@ -234,6 +236,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
 
         scores
     }
+    fn key_cost_ranking(&'a self) -> &'a [usize; 30] {&self.key_cost_ranking}
 }
 
 impl KuehlmakModel {
@@ -535,11 +538,18 @@ impl KuehlmakModel {
             }
         }
 
+        let mut key_cost_ranking = [0; 30];
+        for i in 0..30 {
+            key_cost_ranking[i] = i;
+        }
+        key_cost_ranking.sort_by_key(|&k| key_props[k].cost);
+
         KuehlmakModel {
             board_type,
             key_props,
             bigram_types,
             trigram_types,
+            key_cost_ranking,
         }
     }
 
@@ -596,7 +606,7 @@ impl KuehlmakModel {
             hand: hand as u8,
             finger: finger as u8,
             d_abs, d_rel,
-            cost: key_cost[key] as f32,
+            cost: key_cost[key],
         }
     }
 }

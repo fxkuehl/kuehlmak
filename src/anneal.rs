@@ -154,12 +154,29 @@ where M: EvalModel<'a>
                                                   self.precision);
     }
 
-    fn sample2(&mut self, r: Range<usize>)
-    -> (usize, usize) {
-        let b: usize = self.rng.gen_range(r.start..(r.end - 1));
-        let a: usize = self.rng.gen_range(r);
-        (a, if b >= a {b + 1} else {b})
+    fn mutate(&mut self) -> Layout {
+        // Use large mutations (that change more than two keys) only when
+        // precision is still low.
+        let available_ops = if self.precision < 0.5 {5} else {3};
+        match self.rng.gen_range(0..available_ops) {
+            0 => self.swap_keys(),
+            1 => self.swap_finger_keys(),
+            2 => self.swap_ranked_keys(),
+            3 => self.swap_rows(),
+            4 => self.swap_fingers(),
+            _ => panic!()
+        }
     }
+    // Just swap two random keys
+    fn swap_keys(&mut self) -> Layout {
+        let (a, b) = self.sample2(0..30);
+        let mut layout = self.cur_layout;
+        layout[a] = layout[b];
+        layout[b] = self.cur_layout[a];
+        layout
+    }
+    // Swap two keys in the same finger. This doesn't change same-finger
+    // scores. On symmetrical models it doesn't change effort scores.
     fn swap_finger_keys(&mut self) -> Layout {
         let f = self.rng.gen_range(0..8);
         let (a, b) = match f {
@@ -183,18 +200,59 @@ where M: EvalModel<'a>
         layout[b] = self.cur_layout[a];
         layout
     }
-    fn swap_keys(&mut self) -> Layout {
-        let (a, b) = self.sample2(0..30);
+    // Swap similarly ranked keys. This reduces the change in the effort
+    // scores compared to swapping completely random keys.
+    fn swap_ranked_keys(&mut self) -> Layout {
+        let window_size = 8;
+        let window_start = self.rng.gen_range(0..(30 - window_size));
+        let (a, b) = self.sample2(window_start..(window_start + window_size));
+        let ranking = self.model.key_cost_ranking();
+        let (a, b) = (ranking[a], ranking[b]);
         let mut layout = self.cur_layout;
         layout[a] = layout[b];
         layout[b] = self.cur_layout[a];
         layout
     }
-    fn mutate(&mut self) -> Layout {
-        match self.rng.gen_range(0..2) {
-            0 => self.swap_keys(),
-            1 => self.swap_finger_keys(),
-            _ => panic!()
+    // Swap two rows in one hand only. This doesn't change same-finger
+    // scores.
+    fn swap_rows(&mut self) -> Layout {
+        let h = self.rng.gen_range(0..2);
+        let (a, b) = self.sample2(0..3);
+        let mut layout = self.cur_layout;
+        let a = h*5 + a*10;
+        let b = h*5 + b*10;
+        layout[a..a+5].copy_from_slice(&self.cur_layout[b..b+5]);
+        layout[b..b+5].copy_from_slice(&self.cur_layout[a..a+5]);
+        layout
+    }
+    // Swap two fingers. This doesn't change same-finger scores. Index
+    // fingers are special because they have twice as many keys. They can
+    // only be swapped with each other and get mirrored in the process.
+    fn swap_fingers(&mut self) -> Layout {
+        let (a, b) = self.sample2(0..7);
+        let a = if a > 3 {a + 3} else {a};
+        let b = if b > 3 {b + 3} else {b};
+        let mut layout = self.cur_layout;
+        if a == 3 || b == 3 {
+            for r in 0..3 {
+                layout[r*10 + 3] = layout[r*10 + 6];
+                layout[r*10 + 4] = layout[r*10 + 5];
+                layout[r*10 + 6] = self.cur_layout[r*10 + 3];
+                layout[r*10 + 5] = self.cur_layout[r*10 + 4];
+            }
+        } else {
+            for r in 0..3 {
+                layout[r*10 + a] = layout[r*10 + b];
+                layout[r*10 + b] = self.cur_layout[r*10 + a];
+            }
         }
+        layout
+    }
+
+    fn sample2(&mut self, r: Range<usize>)
+    -> (usize, usize) {
+        let b: usize = self.rng.gen_range(r.start..(r.end - 1));
+        let a: usize = self.rng.gen_range(r);
+        (a, if b >= a {b + 1} else {b})
     }
 }
