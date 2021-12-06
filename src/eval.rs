@@ -1,8 +1,106 @@
 use super::{TextStats, Bigram, Trigram};
-use std::io;
+use std::fs::OpenOptions;
+use std::io::{self, BufWriter};
+use std::io::Write as IoWrite;
+use std::fmt;
+use std::fmt::Write as FmtWrite;
+use std::path::PathBuf;
 
 // Layout: 2 chars per key (normal/shifted), 10 keys per row, 3 rows
 pub type Layout = [[char; 2]; 30];
+
+pub fn layout_from_str(text: &str) -> Result<Layout, String> {
+    let mut layout: Layout = [[' '; 2]; 30];
+
+    let mut last_line = 0;
+    for (l, line) in text.lines().enumerate().take(3) {
+        last_line = l;
+
+        let mut last_key = 0;
+        for (k, key) in line.split_whitespace().enumerate() {
+            if k >= 10 {
+                return Err(format!(
+                    "Too many keys on row {}. Expected 10 keys per row",
+                    l + 1));
+            }
+            last_key = k;
+
+            let k = l * 10 + k;
+            let mut last_char = 0;
+            for (i, c) in key.chars().enumerate() {
+                if i >= 2 {
+                    return Err(format!(
+                        "Too many characters on row {}, key {}. Expected 1 or 2 characters per key",
+                       l, last_key));
+                }
+                last_char = i;
+
+                layout[k][i] = c;
+            }
+            if last_char == 0 {
+                let c = layout[k][0];
+                if !c.is_alphabetic()
+                    || c.to_lowercase().count() != 1
+                    || c.to_uppercase().count() != 1 {
+                    return Err(format!(
+                        "Automatic case conversion failed for '{}' at row {}, key {}",
+                        c, l, last_key));
+                }
+                layout[k][0] = c.to_lowercase().next().unwrap();
+                layout[k][1] = c.to_uppercase().next().unwrap();
+            } else {
+                assert!(last_char == 1);
+            }
+        }
+        if last_key+1 < 10 {
+            return Err(format!(
+                "Found only {} keys in row {}. Expected 10 keys per row",
+                last_key+1, last_line));
+        }
+    }
+    if last_line+1 < 3 {
+        return Err(format!("Found only {} rows. Expected 3 rows",
+                           last_line+1));
+    }
+    Ok(layout)
+}
+
+pub fn layout_to_str(layout: &Layout) -> String {
+    let mut s = String::new();
+    let mut keys = layout.iter();
+    let mut write10keys = |s: &mut String|
+        keys.by_ref().map(|&[a, b]| match b.to_lowercase().next() {
+            Some(l) if l == a => write!(s, "  {}", a),
+            _                 => write!(s, " {}{}", a, b),
+        }).take(10).fold(Ok(()), fmt::Result::and).unwrap();
+
+    write10keys(&mut s);
+    writeln!(s).unwrap();
+    write10keys(&mut s);
+    writeln!(s).unwrap();
+    write10keys(&mut s);
+    writeln!(s).unwrap();
+    s
+}
+
+pub fn layout_to_filename(layout: &Layout) -> String {
+    let mut s = String::new();
+    for &[a, _] in layout {
+        // Some substitutions for characters that don't work well in
+        // file names on some OSes.
+        s.push(match a {
+            '/' => 'Z',
+            '?' => 'S',
+            '<' => 'L',
+            '>' => 'G',
+            ':' => 'I',
+            '\\' => 'V',
+            '|' => 'T',
+            _ => a,
+        });
+    }
+    s
+}
 
 // Mirror a key from left to right hand or vice versa
 fn mirror_key(k: u8) -> u8
@@ -28,9 +126,32 @@ struct KeyProps {
 
 pub trait EvalScores {
     fn write<W>(&self, w: &mut W) -> io::Result<()>
-        where W: io::Write;
+        where W: IoWrite;
     fn layout(&self) -> Layout;
     fn total(&self) -> f64;
+
+    fn write_to_db(&self, dir: &str) -> io::Result<()> {
+        let path: PathBuf =
+            [dir, &layout_to_filename(&self.layout())].iter().collect();
+        if let Ok(file) = OpenOptions::new()
+                .append(true).create_new(true).open(&path) {
+            // The file didn't exist. Write the layout and scores.
+            // The number of #'s on the last line counts how often the
+            // layout was found.
+            let mut w = BufWriter::new(file);
+
+            w.write_all(layout_to_str(&self.layout()).as_bytes())?;
+            self.write(&mut w)?;
+            write!(w, "#")?;
+
+            w.flush()
+        } else {
+            // The file exists. Append one more #.
+            let mut file = OpenOptions::new().append(true).open(&path)?;
+
+            write!(file, "#")
+        }
+    }
 }
 
 // Keyboard evaluation model that can be reused for evaluating multiple
@@ -72,7 +193,7 @@ pub struct KuehlmakModel {
 
 impl<'a> EvalScores for KuehlmakScores<'a> {
     fn write<W>(&self, w: &mut W) -> io::Result<()>
-    where W: io::Write {
+    where W: IoWrite {
         let norm = 1000.0 / self.strokes as f64;
         let mut fh = [0u64; 8];
         for (&count, props) in
