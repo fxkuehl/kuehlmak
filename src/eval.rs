@@ -5,6 +5,7 @@ use std::io::Write as IoWrite;
 use std::fmt;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
+use serde::{Serialize, Deserialize};
 
 // Layout: 2 chars per key (normal/shifted), 10 keys per row, 3 rows
 pub type Layout = [[char; 2]; 30];
@@ -113,7 +114,7 @@ fn mirror_key(k: u8) -> u8
     k + 9 - 2 * (k % 10)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum KeyboardType {
     Ortho,
     ANSI,
@@ -169,6 +170,56 @@ pub trait EvalModel<'a> {
     fn key_cost_ranking(&'a self) -> &'a [usize; 30];
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KuehlmakParams {
+    board_type: KeyboardType,
+    weights: KuehlmakWeights
+}
+
+impl Default for KuehlmakParams {
+    fn default() -> Self {
+        KuehlmakParams {
+            board_type: KeyboardType::Ortho,
+            weights: KuehlmakWeights::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KuehlmakWeights {
+    effort: f64,
+    travel: f64,
+    imbalance: f64,
+    fast_bigrams: f64,
+    same_finger_bigrams: f64,
+    row_jumping_bigrams: f64,
+    tiring_bigrams: f64,
+    fast_trigrams: f64,
+    same_finger_trigrams: f64,
+    row_jumping_trigrams: f64,
+    reversing_trigrams: f64,
+}
+
+impl Default for KuehlmakWeights {
+    fn default() -> Self {
+        KuehlmakWeights {
+            effort:               0.2,
+            travel:               0.1,
+            imbalance:            0.05,
+            fast_bigrams:        -1.0, // negative to maximize fast bigrams
+            same_finger_bigrams:  5.0,
+            row_jumping_bigrams:  5.0,
+            tiring_bigrams:       1.0,
+            fast_trigrams:       -1.0, // negative to maximize fast trigrams
+            same_finger_trigrams: 1.0,
+            row_jumping_trigrams: 1.0,
+            reversing_trigrams:  10.0,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct KuehlmakScores<'a> {
     model: &'a KuehlmakModel,
@@ -189,7 +240,7 @@ pub struct KuehlmakScores<'a> {
 
 #[derive(Clone, Copy)]
 pub struct KuehlmakModel {
-    board_type: KeyboardType,
+    params: KuehlmakParams,
     key_props: [KeyProps; 30],
     bigram_types: [[u8; 30]; 30],
     trigram_types: [[[u8; 30]; 30]; 30],
@@ -213,7 +264,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                               .map(|s| s.iter().sum::<f64>() * norm);
         let travel = self.finger_travel.iter().sum::<f64>() * norm;
 
-        let key_space = match self.model.board_type {
+        let key_space = match self.model.params.board_type {
                 KeyboardType::Ortho => [["", "  |  ", ""]; 3],
                 KeyboardType::ANSI =>
                     [[" ", "", "    "],
@@ -347,17 +398,25 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
 
         let strokes = scores.strokes as f64;
         scores.total = [
-            (0.2f64, scores.effort),
-            (0.1, scores.travel),
-            (0.05, scores.imbalance),
-            (-1.0/strokes, scores.bigram_counts[BIGRAM_FAST] as f64),
-            ( 5.0/strokes, scores.bigram_counts[BIGRAM_SAME_FINGER] as f64),
-            ( 5.0/strokes, scores.bigram_counts[BIGRAM_ROW_JUMPING] as f64),
-            ( 1.0/strokes, scores.bigram_counts[BIGRAM_TIRING] as f64),
-            (-1.0/strokes, scores.trigram_counts[TRIGRAM_FAST] as f64),
-            ( 1.0/strokes, scores.trigram_counts[TRIGRAM_SAME_FINGER] as f64),
-            ( 1.0/strokes, scores.trigram_counts[TRIGRAM_ROW_JUMPING] as f64),
-            (10.0/strokes, scores.trigram_counts[TRIGRAM_REVERSING] as f64)
+            (self.params.weights.effort, scores.effort),
+            (self.params.weights.travel, scores.travel),
+            (self.params.weights.imbalance, scores.imbalance),
+            (self.params.weights.fast_bigrams / strokes,
+             scores.bigram_counts[BIGRAM_FAST] as f64),
+            (self.params.weights.same_finger_bigrams / strokes,
+             scores.bigram_counts[BIGRAM_SAME_FINGER] as f64),
+            (self.params.weights.row_jumping_bigrams / strokes,
+             scores.bigram_counts[BIGRAM_ROW_JUMPING] as f64),
+            (self.params.weights.tiring_bigrams / strokes,
+             scores.bigram_counts[BIGRAM_TIRING] as f64),
+            (self.params.weights.fast_trigrams / strokes,
+             scores.trigram_counts[TRIGRAM_FAST] as f64),
+            (self.params.weights.same_finger_trigrams / strokes,
+             scores.trigram_counts[TRIGRAM_SAME_FINGER] as f64),
+            (self.params.weights.row_jumping_trigrams / strokes,
+             scores.trigram_counts[TRIGRAM_ROW_JUMPING] as f64),
+            (self.params.weights.reversing_trigrams / strokes,
+             scores.trigram_counts[TRIGRAM_REVERSING] as f64)
         ].into_iter().map(|(score, weight)| score * weight).sum::<f64>();
 
         scores
@@ -534,10 +593,10 @@ impl KuehlmakModel {
         scores.imbalance = balance.max(0.001).recip() - 1.0;
     }
 
-    pub fn new() -> KuehlmakModel {
-        let board_type = KeyboardType::Ortho;
+    pub fn new(params: Option<KuehlmakParams>) -> KuehlmakModel {
+        let params = params.unwrap_or_default();
         let mut i = 0;
-        let mut k = || Self::key_props({i += 1; i - 1}, board_type);
+        let mut k = || Self::key_props({i += 1; i - 1}, params.board_type);
         let key_props = [
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
@@ -671,7 +730,7 @@ impl KuehlmakModel {
         key_cost_ranking.sort_by_key(|&k| key_props[k].cost);
 
         KuehlmakModel {
-            board_type,
+            params,
             key_props,
             bigram_types,
             trigram_types,

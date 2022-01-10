@@ -71,7 +71,7 @@ fn anneal_command(sub_m: &ArgMatches) {
         }
     };
 
-    let kuehlmak_model = KuehlmakModel::new();
+    let kuehlmak_model = KuehlmakModel::new(None);
     let mut anneal = Anneal::new(&kuehlmak_model, &text, layout, shuffle,
                                  steps);
 
