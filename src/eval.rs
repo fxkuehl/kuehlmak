@@ -174,7 +174,8 @@ pub trait EvalModel<'a> {
 #[serde(default)]
 pub struct KuehlmakParams {
     board_type: KeyboardType,
-    weights: KuehlmakWeights
+    weights: KuehlmakWeights,
+    constraints: ConstraintParams,
 }
 
 impl Default for KuehlmakParams {
@@ -182,6 +183,7 @@ impl Default for KuehlmakParams {
         KuehlmakParams {
             board_type: KeyboardType::Ortho,
             weights: KuehlmakWeights::default(),
+            constraints: ConstraintParams::default(),
         }
     }
 }
@@ -220,6 +222,46 @@ impl Default for KuehlmakWeights {
     }
 }
 
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ConstraintParams {
+    zxcv: f64,
+    nonalpha: f64,
+}
+
+fn eval_constraints(layout: &Layout, params: &ConstraintParams) -> f64 {
+    params.zxcv * eval_zxcv(layout) + params.nonalpha * eval_nonalpha(layout)
+}
+
+// ZXCV-constraint: Penalize xzcv keys that are not in the left hand
+// bottom row. Being complete and in the right order gives one bonus point
+fn eval_zxcv(layout: &Layout) -> f64 {
+    let zxcv = ['z', 'x', 'c', 'v'];
+    let mut found = [' ', ' ', ' ', ' '];
+    let mut n = 0;
+
+    for [c, _] in &layout[20..25] {
+        if zxcv.contains(c) {
+            found[n] = *c;
+            n += 1;
+        }
+    }
+    if zxcv == found {
+        n += 1;
+    }
+    (5 - n) as f64 / 5.0
+}
+
+// Non-alpha constraint: Penalize alpha-keys in Colemak non-alpha positions.
+// Using Colemak rather than QWERTY because non-alpha keys make no sense on
+// the home row
+fn eval_nonalpha(layout: &Layout) -> f64 {
+    let mut n = if layout[9][0].is_alphabetic() {1} else {0};
+
+    n += layout[27..30].iter().filter(|[c, _]| c.is_alphabetic()).count();
+    n as f64 / 4.0
+}
+
 #[derive(Clone)]
 pub struct KuehlmakScores<'a> {
     model: &'a KuehlmakModel,
@@ -236,6 +278,7 @@ pub struct KuehlmakScores<'a> {
     travel: f64,
     imbalance: f64,
     total: f64,
+    constraints: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -346,7 +389,8 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         write!(w, "                        Reversing |")?;
         write_heat_row(w, key_space[1])?;
 
-        write!(w, "Total+Constraints   {:6.4}+{:6.4} |", self.total, 0.0)?;
+        write!(w, "Total+Constraints   {:6.4}{:+7.4} |",
+               self.total, self.constraints)?;
         write_key_row(w, key_space[2])?;
 
         write!(w, "Hand runs TODO                    |")?;
@@ -356,7 +400,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
     }
 
     fn layout(&self) -> Layout {self.layout}
-    fn total(&self) -> f64 {self.total}
+    fn total(&self) -> f64 {self.total + self.constraints}
 }
 
 impl<'a> EvalModel<'a> for KuehlmakModel {
@@ -367,6 +411,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
         let mut scores = KuehlmakScores {
             model: self,
             layout: *layout,
+            constraints: eval_constraints(layout, &self.params.constraints),
             token_keymap: Vec::new(),
             strokes: 0,
             heatmap: [0; 30],
