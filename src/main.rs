@@ -1,6 +1,6 @@
 use kuehlmak::TextStats;
 use kuehlmak::{
-    layout_from_str, EvalModel, EvalScores, KuehlmakModel,
+    layout_from_str, EvalModel, EvalScores, KuehlmakModel, KuehlmakParams,
     Anneal
 };
 
@@ -27,6 +27,18 @@ r#"'" ,< .>  p  y  f  g  c  r  l
    ;:  q  j  k  x  b  m  w  v  z"#;
 
 fn anneal_command(sub_m: &ArgMatches) {
+    let mut config: Option<KuehlmakParams> = None;
+    if let Some(filename) = sub_m.value_of("config") {
+        let c = fs::read_to_string(filename).unwrap_or_else(|e| {
+            eprintln!("Failed to read config file '{}': {}", filename, e);
+            process::exit(1)
+        });
+        config = Some(toml::from_str(&c).unwrap_or_else(|e| {
+            eprintln!("Failed to parse config file '{}': {}", filename, e);
+            process::exit(1)
+        }));
+    }
+
     let layout = match sub_m.value_of("layout") {
         Some("QWERTY") => String::from(QWERTY),
         Some("Colemak") => String::from(COLEMAK),
@@ -71,7 +83,7 @@ fn anneal_command(sub_m: &ArgMatches) {
         }
     };
 
-    let kuehlmak_model = KuehlmakModel::new(None);
+    let kuehlmak_model = KuehlmakModel::new(config);
     let mut anneal = Anneal::new(&kuehlmak_model, &text, layout, shuffle,
                                  steps);
 
@@ -105,6 +117,8 @@ fn main() {
         (@subcommand anneal =>
             (about: "Generate a layout with Simulated Annealing")
             (version: "0.1")
+            (@arg config: -c --config +takes_value
+                "Configuration file")
             (@arg layout: -l --layout +takes_value
                 "Initial layout name or filename [QWERTY]")
             (@arg noshuffle: -n --("no-shuffle")
