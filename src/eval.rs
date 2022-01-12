@@ -108,6 +108,63 @@ pub fn layout_to_filename(layout: &Layout) -> String {
     s
 }
 
+// How different are two layouts? Count how many symbols are on the same
+// key, finger and hand to make up a score between 0 (identical) and
+// 1 (as different as it gets).
+pub fn layout_distance(a: &Layout, b: &Layout) -> f64 {
+    // Build indexed arrays of the lower-case symbols of both layouts
+    let mut i = 0usize;
+    let mut c = || {i += 1; ((i-1) as u32, a[i-1][0])};
+    let mut a = [c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
+                 c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
+                 c(), c(), c(), c(), c(), c(), c(), c(), c(), c()];
+    let mut i = 0usize;
+    let mut c = || {i += 1; ((i-1) as u32, b[i-1][0])};
+    let mut b = [c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
+                 c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
+                 c(), c(), c(), c(), c(), c(), c(), c(), c(), c()];
+
+    // Sort them by symbol. That makes the rest of this function O(n)
+    a.sort_by_key(|x| x.1);
+    b.sort_by_key(|x| x.1);
+
+    // Iterate over both array, evaluate distance of matching symbols
+    let mut i = 0;
+    let mut j = 0;
+    let mut distance = 120;
+    while i < 30 && j < 30 {
+        // If the symbols don't match, advance the array with the smaller
+        // symbol to try to resync them and find all matches
+        if a[i].1 < b[j].1 {
+            i += 1;
+            continue;
+        } else if a[i].1 > b[j].1 {
+            j += 1;
+            continue;
+        }
+        // Symbols match, adjust distance based on the indexes
+        if a[i].0 == b[j].0 {
+            distance -= 4; // same key
+        } else {
+            let finger = |key| {
+                let col = key % 10;
+                if col < 4 {col} else if col < 6 {col - 1} else {col - 2}
+            };
+            if finger(a[i].0) == finger(b[j].0) {
+                distance -= 2;
+            } else {
+                let hand = |k| if k % 10 < 5 {0} else {1};
+                if hand(a[i].0) == hand(b[j].0) {
+                    distance -= 1;
+                }
+            }
+        }
+        i += 1;
+        j += 1;
+    }
+    distance as f64 / 120.0
+}
+
 // Mirror a key from left to right hand or vice versa
 fn mirror_key(k: u8) -> u8
 {
@@ -188,6 +245,15 @@ impl Default for KuehlmakParams {
     }
 }
 
+impl KuehlmakParams {
+    pub fn set_ref_layout(&mut self, layout: &Layout) {
+        if self.constraints.ref_layout == None &&
+                self.constraints.ref_weight != 0.0 {
+            self.constraints.ref_layout = Some(*layout);
+        }
+    }
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KuehlmakWeights {
@@ -225,12 +291,23 @@ impl Default for KuehlmakWeights {
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ConstraintParams {
+    ref_layout: Option<Layout>,
+    ref_weight: f64,
+    ref_threshold: f64,
     zxcv: f64,
     nonalpha: f64,
 }
 
 fn eval_constraints(layout: &Layout, params: &ConstraintParams) -> f64 {
-    params.zxcv * eval_zxcv(layout) + params.nonalpha * eval_nonalpha(layout)
+    let ref_distance = match params.ref_layout.as_ref() {
+        Some(ref_layout) if params.ref_weight != 0.0 =>
+            (layout_distance(layout, ref_layout) - params.ref_threshold)
+            .max(0.0) * (1.0 - params.ref_threshold) * params.ref_weight,
+        _ => 0.0,
+    };
+    return params.zxcv * eval_zxcv(layout) +
+           params.nonalpha * eval_nonalpha(layout) +
+           ref_distance;
 }
 
 // ZXCV-constraint: Penalize xzcv keys that are not in the left hand

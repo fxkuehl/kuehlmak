@@ -54,6 +54,10 @@ fn anneal_command(sub_m: &ArgMatches) {
         process::exit(1)
     });
 
+    if let Some(config) = config.as_mut() {
+        config.set_ref_layout(&layout);
+    }
+
     // Won't panic because TEXT is mandatory
     let text_filename = sub_m.value_of("TEXT").unwrap();
     let text_contents = fs::read_to_string(text_filename).unwrap_or_else(|e| {
