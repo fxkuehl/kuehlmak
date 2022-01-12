@@ -276,14 +276,14 @@ impl Default for KuehlmakWeights {
             effort:               0.2,
             travel:               0.1,
             imbalance:            0.05,
-            fast_bigrams:        -1.0, // negative to maximize fast bigrams
-            same_finger_bigrams:  5.0,
+            fast_bigrams:        -0.1, // negative to maximize fast bigrams
+            same_finger_bigrams: 10.0,
             row_jumping_bigrams:  5.0,
             tiring_bigrams:       1.0,
-            fast_trigrams:       -1.0, // negative to maximize fast trigrams
+            fast_trigrams:       -0.1, // negative to maximize fast trigrams
             same_finger_trigrams: 1.0,
             row_jumping_trigrams: 1.0,
-            reversing_trigrams:  10.0,
+            reversing_trigrams:   5.0,
         }
     }
 }
