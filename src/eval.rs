@@ -105,6 +105,7 @@ pub fn layout_to_filename(layout: &Layout) -> String {
             _ => a,
         });
     }
+    s.push_str(".kbl");
     s
 }
 
@@ -191,6 +192,7 @@ pub trait EvalScores {
     fn write<W>(&self, w: &mut W) -> io::Result<()>
         where W: IoWrite;
     fn layout(&self) -> Layout;
+    fn layout_ref(&self) -> &Layout;
     fn total(&self) -> f64;
 
     fn write_to_db(&self, dir: &str) -> io::Result<()> {
@@ -477,6 +479,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
     }
 
     fn layout(&self) -> Layout {self.layout}
+    fn layout_ref(&self) -> &Layout {&self.layout}
     fn total(&self) -> f64 {self.total + self.constraints}
 }
 
