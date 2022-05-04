@@ -13,6 +13,7 @@ use std::path::{PathBuf, Path};
 use std::str::FromStr;
 use std::ffi::OsStr;
 use std::process;
+use std::env;
 use std::io;
 use std::fs;
 
@@ -20,16 +21,6 @@ static QWERTY: &str =
 r#"q  w  e  r  t  y  u  i  o  p
    a  s  d  f  g  h  j  k  l ;:
    z  x  c  v  b  n  m ,< .> /?"#;
-
-static COLEMAK: &str =
-r#"q  w  f  p  g  j  l  u  y ;:
-   a  r  s  t  d  h  n  e  i  o
-   z  x  c  v  b  k  m ,< .> /?"#;
-
-static DVORAK: &str =
-r#"'" ,< .>  p  y  f  g  c  r  l
-    a  o  e  u  i  d  h  t  n  s
-   ;:  q  j  k  x  b  m  w  v  z"#;
 
 fn layout_from_file<P>(path: P) -> Layout
     where P: AsRef<Path> + Copy
@@ -53,11 +44,19 @@ fn config_from_file<P>(path: P) -> KuehlmakParams
                   path.as_ref().display(), e);
         process::exit(1)
     });
-    toml::from_str(&c).unwrap_or_else(|e| {
+
+    // Change current directory to make relative paths in the config behave
+    let prev_dir = env::current_dir().expect("Failed to get current dir");
+    if let Some(dir) = path.as_ref().parent() {
+        env::set_current_dir(dir).expect("Failed to set current dir");
+    }
+    let config = toml::from_str(&c).unwrap_or_else(|e| {
         eprintln!("Failed to parse config file '{}': {}",
                   path.as_ref().display(), e);
         process::exit(1)
-    })
+    });
+    env::set_current_dir(&prev_dir).expect("Failed to set current dir");
+    config
 }
 
 fn text_from_file(filename: &str) -> TextStats {
@@ -77,12 +76,9 @@ fn text_from_file(filename: &str) -> TextStats {
 }
 
 fn anneal_command(sub_m: &ArgMatches) {
-    let mut config = sub_m.value_of("config").map(config_from_file);
+    let config = sub_m.value_of("config").map(config_from_file);
 
     let layout = match sub_m.value_of("layout") {
-        Some("QWERTY") => String::from(QWERTY),
-        Some("Colemak") => String::from(COLEMAK),
-        Some("Dvorak") => String::from(DVORAK),
         Some(filename) => fs::read_to_string(filename).unwrap_or_else(|e| {
             eprintln!("Failed to read layout file '{}': {}", filename, e);
             process::exit(1)
@@ -93,10 +89,6 @@ fn anneal_command(sub_m: &ArgMatches) {
         eprintln!("Failed to parse layout: {}", e);
         process::exit(1)
     });
-
-    if let Some(config) = config.as_mut() {
-        config.set_ref_layout(&layout);
-    }
 
     // Won't panic because TEXT is mandatory
     let text_filename = sub_m.value_of("TEXT").unwrap();
@@ -294,25 +286,6 @@ fn choose_command(sub_m: &ArgMatches) {
         }
     }
 
-    let layout = match sub_m.value_of("layout") {
-        Some("QWERTY") => String::from(QWERTY),
-        Some("Colemak") => String::from(COLEMAK),
-        Some("Dvorak") => String::from(DVORAK),
-        Some(filename) => fs::read_to_string(filename).unwrap_or_else(|e| {
-            eprintln!("Failed to read layout file '{}': {}", filename, e);
-            process::exit(1)
-        }),
-        None => String::from(QWERTY),
-    };
-    let layout = layout_from_str(&layout).unwrap_or_else(|e| {
-        eprintln!("Failed to parse layout: {}", e);
-        process::exit(1)
-    });
-
-    if let Some(config) = config.as_mut() {
-        config.set_ref_layout(&layout);
-    }
-
     let percentile: usize = match sub_m.value_of("percentile") {
         Some(number) => number.parse().unwrap_or_else(|e| {
             eprintln!("Invalid number '{}': {}", number, e);
@@ -328,9 +301,8 @@ fn choose_command(sub_m: &ArgMatches) {
     // Won't panic because TEXT is mandatory
     let text_filename = sub_m.value_of("TEXT").unwrap();
     let text = text_from_file(text_filename);
-    let mut alphabet: Vec<_> = layout.iter().flatten().copied().collect();
-    alphabet.sort();
-    let text = text.filter(|c| alphabet.binary_search(&c).is_ok());
+    // Not filtering with any alphabet because different layouts may use
+    // different alphabets.
 
     let kuehlmak_model = KuehlmakModel::new(config);
 
@@ -370,7 +342,7 @@ fn main() {
             (@arg config: -c --config +takes_value
                 "Configuration file")
             (@arg layout: -l --layout +takes_value
-                "Initial layout name or filename [QWERTY]")
+                "Initial layout filename [QWERTY]")
             (@arg noshuffle: -n --("no-shuffle")
                 "Don't shuffle initial layout")
             (@arg steps: -s --steps +takes_value
@@ -383,8 +355,6 @@ fn main() {
             (version: "0.1")
             (@arg dir: -d --dir +takes_value +required
                 "DB and configuration directory")
-            (@arg layout: -l --layout +takes_value
-                "Reference layout name or filename [QWERTY]")
             (@arg percentile: -p --percentile +takes_value
                 "Top percentile of layouts to consider")
             (@arg TEXT: +required

@@ -109,6 +109,56 @@ pub fn layout_to_filename(layout: &Layout) -> String {
     s
 }
 
+mod serde_layout {
+    use std::fs;
+    use std::fmt;
+    use serde::{Serializer, Deserializer, de, de::Visitor, de::Unexpected};
+    use super::{Layout, layout_to_str, layout_from_str};
+
+    pub fn serialize<S>(layout: &Option<Layout>, ser: S) -> Result<S::Ok, S::Error>
+    where S: Serializer {
+        match layout {
+            Some(layout) => ser.serialize_str(&layout_to_str(layout)),
+            None => ser.serialize_none(),
+        }
+    }
+
+    struct LayoutVisitor;
+    impl<'de> Visitor<'de> for LayoutVisitor {
+        type Value = Option<Layout>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            write!(formatter, "a layout filname or inline definition")
+        }
+
+        fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+        where E: de::Error {
+            if s.lines().count() >= 3 { // Try to parse it as an inline layout
+                match layout_from_str(s) {
+                    Ok(layout) => Ok(Some(layout)),
+                    Err(_) => Err(de::Error::invalid_value(Unexpected::Str(s),
+                                                           &self)),
+                }
+            } else {
+                match fs::read_to_string(s) {
+                    Ok(string) => match layout_from_str(&string) {
+                        Ok(layout) => Ok(Some(layout)),
+                        Err(_) => Err(de::Error::invalid_value(
+                                      Unexpected::Str(&string), &self)),
+                    },
+                    Err(_) => Err(de::Error::invalid_value(Unexpected::Str(s),
+                                                           &self)),
+                }
+            }
+        }
+    }
+
+    pub fn deserialize<'de, D>(des: D) -> Result<Option<Layout>, D::Error>
+    where D: Deserializer<'de> {
+        des.deserialize_str(LayoutVisitor)
+    }
+}
+
 // How different are two layouts? Count how many symbols are on the same
 // key, finger and hand to make up a score between 0 (identical) and
 // 1 (as different as it gets).
@@ -247,15 +297,6 @@ impl Default for KuehlmakParams {
     }
 }
 
-impl KuehlmakParams {
-    pub fn set_ref_layout(&mut self, layout: &Layout) {
-        if self.constraints.ref_layout == None &&
-                self.constraints.ref_weight != 0.0 {
-            self.constraints.ref_layout = Some(*layout);
-        }
-    }
-}
-
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KuehlmakWeights {
@@ -293,6 +334,7 @@ impl Default for KuehlmakWeights {
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ConstraintParams {
+    #[serde(with = "serde_layout")]
     ref_layout: Option<Layout>,
     ref_weight: f64,
     ref_threshold: f64,
