@@ -133,6 +133,28 @@ fn anneal_command(sub_m: &ArgMatches) {
     scores.write_to_db("./db").unwrap();
 }
 
+fn eval_command(sub_m: &ArgMatches) {
+    let config = sub_m.value_of("config").map(config_from_file);
+
+    // Won't panic because TEXT is mandatory
+    let text_filename = sub_m.value_of("TEXT").unwrap();
+    let text = text_from_file(text_filename);
+    // Not filtering with any alphabet because different layouts may use
+    // different alphabets.
+
+    let kuehlmak_model = KuehlmakModel::new(config);
+    let stdout = &mut io::stdout();
+
+    for filename in sub_m.values_of("LAYOUT").into_iter().flatten() {
+        let layout = layout_from_file(filename);
+
+        let scores = kuehlmak_model.eval_layout(&layout, &text, 1.0);
+
+        println!("=== {} ===================", filename);
+        scores.write(stdout).unwrap();
+    }
+}
+
 fn get_dir_paths(dir: &str) -> io::Result<Vec<PathBuf>> {
     fs::read_dir(dir)?
         .map(|res| res.map(|e| e.path()))
@@ -360,6 +382,16 @@ fn main() {
             (@arg TEXT: +required
                 "Text or JSON file to use as input")
         )
+        (@subcommand eval =>
+            (about: "Evaluate layouts")
+            (version: "0.1")
+            (@arg config: -c --config +takes_value
+                "Configuration file")
+            (@arg TEXT: +required
+                "Text or JSON file to use as input")
+            (@arg LAYOUT: +multiple
+                "Layout to evaluate")
+        )
     ).get_matches();
 
     match app_m.subcommand_name() {
@@ -367,6 +399,8 @@ fn main() {
                                               .unwrap()),
         Some("choose") => choose_command(app_m.subcommand_matches("choose")
                                               .unwrap()),
+        Some("eval") => eval_command(app_m.subcommand_matches("eval")
+                                          .unwrap()),
         Some(unknown) => panic!("Unhandled subcommand: {}", unknown),
         None => {
             eprintln!("No subcommand given.\n{}", app_m.usage());
