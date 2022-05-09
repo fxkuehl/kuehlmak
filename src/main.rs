@@ -142,6 +142,8 @@ fn eval_command(sub_m: &ArgMatches) {
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
 
+    let verbose = sub_m.is_present("verbose");
+
     let kuehlmak_model = KuehlmakModel::new(config);
     let stdout = &mut io::stdout();
 
@@ -152,6 +154,9 @@ fn eval_command(sub_m: &ArgMatches) {
 
         println!("=== {} ===================", filename);
         scores.write(stdout).unwrap();
+        if verbose {
+            scores.write_extra(stdout).unwrap();
+        }
     }
 }
 
@@ -387,6 +392,8 @@ fn main() {
             (version: "0.1")
             (@arg config: -c --config +takes_value
                 "Configuration file")
+            (@arg verbose: -v --verbose
+                "Print extra information for each layout")
             (@arg TEXT: +required
                 "Text or JSON file to use as input")
             (@arg LAYOUT: +multiple

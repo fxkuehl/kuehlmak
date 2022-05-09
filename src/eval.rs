@@ -241,6 +241,8 @@ struct KeyProps {
 pub trait EvalScores {
     fn write<W>(&self, w: &mut W) -> io::Result<()>
         where W: IoWrite;
+    fn write_extra<W>(&self, w: &mut W) -> io::Result<()>
+        where W: IoWrite;
     fn layout(&self) -> Layout;
     fn layout_ref(&self) -> &Layout;
     fn total(&self) -> f64;
@@ -257,6 +259,7 @@ pub trait EvalScores {
 
             w.write_all(layout_to_str(&self.layout()).as_bytes())?;
             self.write(&mut w)?;
+            self.write_extra(&mut w)?;
             write!(w, "#")?;
 
             w.flush()
@@ -520,6 +523,86 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         Ok(())
     }
 
+    fn write_extra<W>(&self, w: &mut W) -> io::Result<()>
+    where W: IoWrite {
+        let norm = 1000.0 / self.strokes as f64;
+        let is_side = |side, c| self.layout.iter()
+                                    .position(|&[l, u]| l == c || u == c)
+                                    .unwrap() % 10 / 5 == side;
+        let write_2gram_freqs = |w: &mut W, vec: &Vec<(Bigram, u64)>, side|
+                -> io::Result<f64> {
+            let mut sum = 0.0;
+            for &(ngram, num) in vec.iter().filter(|&(ngram, _)|
+                                                   is_side(side, ngram[0])) {
+                let p = num as f64 * norm;
+                sum += p;
+                if p >= 0.005 {
+                    write!(w, " {}{}:{:.2}", ngram[0], ngram[1], p)?;
+                }
+            }
+            Ok(sum)
+        };
+
+        let bigram_names = ["", "Fast", "Same finger", "Row jumping", "Tiring"];
+        for (vec, name) in self.bigram_lists.iter()
+                               .zip(bigram_names.into_iter())
+                               .filter_map(|(vec, name)|
+                                            if let Some(vec) = vec.as_ref() {
+                                                Some((vec, name))
+                                            } else {
+                                                None
+                                            }) {
+            writeln!(w)?;
+            writeln!(w, "{} bigrams:", name)?;
+            write!(w, " Left hand:")?;
+            let left_sum = write_2gram_freqs(w, vec, 0)?;
+            writeln!(w)?;
+            write!(w, "Right hand:")?;
+            let right_sum = write_2gram_freqs(w, vec, 1)?;
+            writeln!(w)?;
+            write!(w, "Balance: {:.2}:{:.2}", left_sum, right_sum)?;
+            writeln!(w)?;
+        }
+
+        let write_3gram_freqs = |w: &mut W, vec: &Vec<(Trigram, u64)>, side|
+                -> io::Result<f64> {
+            let mut sum = 0.0;
+            for &(ngram, num) in vec.iter().filter(|&(ngram, _)|
+                                                   is_side(side, ngram[0])) {
+                let p = num as f64 * norm;
+                sum += p;
+                if p >= 0.005 {
+                    write!(w, " {}{}{}:{:.2}",
+                           ngram[0], ngram[1], ngram[2], p)?;
+                }
+            }
+            Ok(sum)
+        };
+
+        let trigram_names = ["", "Fast", "Same finger", "Row jumping", "Reversing"];
+        for (vec, name) in self.trigram_lists.iter()
+                               .zip(trigram_names.into_iter())
+                               .filter_map(|(vec, name)|
+                                            if let Some(vec) = vec.as_ref() {
+                                                Some((vec, name))
+                                            } else {
+                                                    None
+                                            }) {
+            writeln!(w)?;
+            writeln!(w, "{} 3-grams:", name)?;
+            write!(w, " Left hand:")?;
+            let left_sum = write_3gram_freqs(w, vec, 0)?;
+            writeln!(w)?;
+            write!(w, "Right hand:")?;
+            let right_sum = write_3gram_freqs(w, vec, 1)?;
+            writeln!(w)?;
+            write!(w, "Balance: {:.2}:{:.2}", left_sum, right_sum)?;
+            writeln!(w)?;
+        }
+
+        Ok(())
+    }
+
     fn layout(&self) -> Layout {self.layout}
     fn layout_ref(&self) -> &Layout {&self.layout}
     fn total(&self) -> f64 {self.total + self.constraints}
@@ -530,6 +613,8 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
 
     fn eval_layout(&'a self, layout: &Layout, ts: &TextStats,
                    precision: f64) -> Self::Scores {
+        let bl = || if precision >= 1.0 {Some(vec![])} else {None};
+        let tl = || if precision >= 1.0 {Some(vec![])} else {None};
         let mut scores = KuehlmakScores {
             model: self,
             layout: *layout,
@@ -539,8 +624,8 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             heatmap: [0; 30],
             bigram_counts: [0; BIGRAM_NUM_TYPES],
             trigram_counts: [0; TRIGRAM_NUM_TYPES],
-            bigram_lists: [None, None, None, None, None],
-            trigram_lists: [None, None, None, None, None],
+            bigram_lists: [None, bl(), bl(), bl(), bl()],
+            trigram_lists: [None, tl(), tl(), tl(), tl()],
             finger_travel: [0.0; 8],
             effort: 0.0,
             travel: 0.0,
