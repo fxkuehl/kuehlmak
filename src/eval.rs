@@ -965,7 +965,6 @@ impl KuehlmakModel {
                     } else if h0 == h1 && h1 == h2 && // All in the same hand
                             f0 != f1 && f1 != f2 &&   // No finger repeat
                             (f2 > f1) ^ (f1 > f0) &&  // Reversing direction
-                            f0 != 1 && f0 != 6 &&     // Ring finger not first
                             f1 != 1 && f1 != 6 {      // Ring finger not second
                         trigram_types[i][j][k] = TRIGRAM_REVERSING as u8;
                     } else if row_jump_bigrams.binary_search(&b02).is_ok() {
