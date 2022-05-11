@@ -319,16 +319,16 @@ pub struct KuehlmakWeights {
 impl Default for KuehlmakWeights {
     fn default() -> Self {
         KuehlmakWeights {
-            effort:               0.2,
-            travel:               0.1,
+            effort:               0.1,
+            travel:               0.5,
             imbalance:            0.05,
-            fast_bigrams:        -0.1, // negative to maximize fast bigrams
-            same_finger_bigrams: 10.0,
+            fast_bigrams:         0.0, // Only same-hand bigram type not penalized
+            same_finger_bigrams:  5.0,
             row_jumping_bigrams:  5.0,
             tiring_bigrams:       1.0,
-            fast_trigrams:       -0.1, // negative to maximize fast trigrams
-            same_finger_trigrams: 1.0,
-            row_jumping_trigrams: 1.0,
+            fast_trigrams:       -0.3, // negative to maximize fast trigrams
+            same_finger_trigrams: 5.0,
+            row_jumping_trigrams: 5.0,
             reversing_trigrams:   5.0,
         }
     }
@@ -752,7 +752,7 @@ impl KuehlmakModel {
                 let props = &self.key_props[k1];
 
                 scores.finger_travel[props.finger as usize] +=
-                    (props.d_rel[k0] - props.d_abs) as f64 * count as f64;
+                    (props.d_rel[k0]*4.0 - props.d_abs) as f64 * count as f64;
             }
         }
         for count in scores.bigram_counts.iter_mut() {
@@ -797,7 +797,7 @@ impl KuehlmakModel {
 
                 if props.finger != self.key_props[k1].finger {
                     scores.finger_travel[props.finger as usize] +=
-                        (props.d_rel[k0] - props.d_abs) as f64 * count as f64;
+                        (props.d_rel[k0]*2.0 - props.d_abs) as f64 * count as f64;
                 }
             }
         }
