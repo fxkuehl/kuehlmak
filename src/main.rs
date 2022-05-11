@@ -113,6 +113,7 @@ fn anneal_command(sub_m: &ArgMatches) {
 
     let mut scores = kuehlmak_model.eval_layout(&layout, &text, 1.0);
     let stdout = &mut io::stdout();
+    anneal.write_stats(stdout).unwrap();
     scores.write(stdout).unwrap();
 
     loop {

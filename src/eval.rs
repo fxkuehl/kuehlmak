@@ -474,22 +474,22 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
 
         write!(w, "Effort {:6.4} Imbalance {:6.2}%   |",
                self.effort, self.imbalance * 100.0)?;
-        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}=   {:3.0}|",
+        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}=  {:3.0} |",
                fh_iter.next().unwrap(), fh_iter.next().unwrap(),
                fh_iter.next().unwrap(), fh_iter.next().unwrap(),
                hh_iter.next().unwrap())?;
-        writeln!(w, "{:3.0}  ={:3.0}+{:3.0}+{:3.0}+{:3.0} ",
+        writeln!(w, " {:3.0} ={:3.0}+{:3.0}+{:3.0}+{:3.0} ",
                  hh_iter.next().unwrap(),
                  fh_iter.next().unwrap(), fh_iter.next().unwrap(),
                  fh_iter.next().unwrap(), fh_iter.next().unwrap())?;
 
-        write!(w, "Travel {:6.4} ({:6.2})            |",
+        write!(w, "Travel {:6.4} ({:7.2})           |",
                self.travel, travel)?;
-        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}=   {:3.0}|",
+        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}= {:4.0} |",
                ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                ht_iter.next().unwrap())?;
-        writeln!(w, "{:3.0}  ={:3.0}+{:3.0}+{:3.0}+{:3.0} ",
+        writeln!(w, "{:4.0} ={:3.0}+{:3.0}+{:3.0}+{:3.0} ",
                  ht_iter.next().unwrap(),
                  ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                  ft_iter.next().unwrap(), ft_iter.next().unwrap())?;
