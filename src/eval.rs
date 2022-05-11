@@ -401,6 +401,7 @@ pub struct KuehlmakScores<'a> {
     effort: f64,
     travel: f64,
     imbalance: f64,
+    hand_runs: [f64; 2],
     total: f64,
     constraints: f64,
 }
@@ -517,7 +518,8 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                self.total, self.constraints)?;
         write_key_row(w, key_space[2])?;
 
-        write!(w, "Hand runs TODO                    |")?;
+        write!(w, "Hand runs            {:4.2} : {:4.2}  |",
+               self.hand_runs[0], self.hand_runs[1])?;
         write_heat_row(w, key_space[2])?;
 
         Ok(())
@@ -630,6 +632,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             effort: 0.0,
             travel: 0.0,
             imbalance: 0.0,
+            hand_runs: [0.0; 2],
             total: 0.0,
         };
 
@@ -717,15 +720,23 @@ impl KuehlmakModel {
         // is not enough time for the finger to return to the home position.
         // For bigrams, travel distance is from A to B. The same applies to
         // same-finger 3-grams if the middle key uses a different finger.
+        //
+        // Multiply the travel distance for same-finger bigrams and 3-grams
+        // with a penalty factor that represents the finger travel speed
+        // required.
+        let mut hand_total = [0u64; 2];
         for (&count, props) in
                 scores.heatmap.iter().zip(self.key_props.iter()) {
             scores.finger_travel[props.finger as usize] +=
                 props.d_abs as f64 * count as f64;
+
+            hand_total[props.hand as usize] += count;
         }
         let orig_finger_travel = scores.finger_travel;
 
         let percentile = (ts.total_bigrams() as f64 * precision) as u64;
         let mut total = 0;
+        let mut same_hand = [0u64; 2];
         for &(bigram, count, token) in ts.iter_bigrams() {
             if total > percentile {
                 break;
@@ -754,6 +765,10 @@ impl KuehlmakModel {
                 scores.finger_travel[props.finger as usize] +=
                     (props.d_rel[k0]*4.0 - props.d_abs) as f64 * count as f64;
             }
+
+            if k0 == k1 || bigram_type != BIGRAM_NONE {
+                same_hand[k0 % 10 / 5] += count;
+            }
         }
         for count in scores.bigram_counts.iter_mut() {
             *count = *count * ts.total_bigrams() / total;
@@ -763,6 +778,13 @@ impl KuehlmakModel {
             *travel += (*travel - orig) * (1.0 - precision);
         }
         let orig_finger_travel = scores.finger_travel;
+
+        // Estimate same-hand runs as expected value of the geometic
+        // distribution, which is 1 / "probability of switching hands".
+        scores.hand_runs[0] = hand_total[0] as f64 /
+                             (hand_total[0] - same_hand[0]) as f64;
+        scores.hand_runs[1] = hand_total[1] as f64 /
+                             (hand_total[1] - same_hand[1]) as f64;
 
         let precision = precision.powi(2);
         let percentile = (ts.total_trigrams() as f64 * precision) as u64;
