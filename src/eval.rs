@@ -280,6 +280,7 @@ pub trait EvalModel<'a> {
     fn eval_layout(&'a self, layout: &Layout, ts: &TextStats,
                    precision: f64) -> Self::Scores;
     fn key_cost_ranking(&'a self) -> &'a [usize; 30];
+    fn is_symmetrical(&'a self) -> bool;
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -448,10 +449,10 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                      ["", "     ", ""]],
             };
 
-        let mut layout_iter = self.layout.iter();
+        let mut layout_iter = self.layout().into_iter();
         let mut write_5keys = |w: &mut W|
             layout_iter.by_ref().take(5)
-                       .map(|&[a, b]| match b.to_lowercase().next() {
+                       .map(|[a, b]| match b.to_lowercase().next() {
                            Some(l) if l == a => write!(w, "[ {}]", a),
                            _                 => write!(w, "[{}{}]", a, b),
                        }).fold(Ok(()), io::Result::and);
@@ -532,7 +533,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
     fn write_extra<W>(&self, w: &mut W) -> io::Result<()>
     where W: IoWrite {
         let norm = 1000.0 / self.strokes as f64;
-        let is_side = |side, c| self.layout.iter()
+        let is_side = |side, c| self.layout().iter()
                                     .position(|&[l, u]| l == c || u == c)
                                     .unwrap() % 10 / 5 == side;
         let write_2gram_freqs = |w: &mut W, vec: &Vec<(Bigram, u64)>, side|
@@ -609,7 +610,23 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         Ok(())
     }
 
-    fn layout(&self) -> Layout {self.layout}
+    fn layout(&self) -> Layout {
+        if self.model.is_symmetrical() {
+            if let Some(i) = self.layout.iter()
+                                 .position(|&[l, u]| l == '.' || u == '.') {
+                if i % 10 < 5 {
+                    let mut layout = self.layout;
+
+                    layout[0..10].reverse();
+                    layout[10..20].reverse();
+                    layout[20..30].reverse();
+
+                    return layout;
+                }
+            }
+        }
+        self.layout
+    }
     fn layout_ref(&self) -> &Layout {&self.layout}
     fn total(&self) -> f64 {self.total + self.constraints}
 }
@@ -681,6 +698,15 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
         scores
     }
     fn key_cost_ranking(&'a self) -> &'a [usize; 30] {&self.key_cost_ranking}
+    fn is_symmetrical(&'a self) -> bool {
+        if let KeyboardType::Ortho = self.params.board_type {
+            self.params.constraints.ref_layout == None &&
+            self.params.constraints.zxcv == 0.0 &&
+            self.params.constraints.nonalpha == 0.0
+        } else {
+            false
+        }
+    }
 }
 
 impl KuehlmakModel {
