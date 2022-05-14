@@ -346,15 +346,19 @@ pub struct ConstraintParams {
 }
 
 fn eval_constraints(layout: &Layout, params: &ConstraintParams) -> f64 {
-    let ref_distance = match params.ref_layout.as_ref() {
+    let mut score = match params.ref_layout.as_ref() {
         Some(ref_layout) if params.ref_weight != 0.0 =>
             (layout_distance(layout, ref_layout) - params.ref_threshold)
             .max(0.0) * (1.0 - params.ref_threshold) * params.ref_weight,
         _ => 0.0,
     };
-    return params.zxcv * eval_zxcv(layout) +
-           params.nonalpha * eval_nonalpha(layout) +
-           ref_distance;
+    if params.zxcv != 0.0 {
+        score += params.zxcv * eval_zxcv(layout);
+    }
+    if params.nonalpha != 0.0 {
+        score += params.nonalpha * eval_nonalpha(layout);
+    }
+    score
 }
 
 // ZXCV-constraint: Penalize xzcv keys that are not in the left hand
