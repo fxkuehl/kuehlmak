@@ -367,11 +367,65 @@ fn choose_command(sub_m: &ArgMatches) {
     }
 }
 
+fn textstats_command(sub_m: &ArgMatches) {
+    // Won't panic because TEXT is mandatory
+    let text_filename = sub_m.value_of("TEXT").unwrap();
+    let text = text_from_file(text_filename);
+
+    let text = if let Some(alpha) = sub_m.value_of("alphabet") {
+        let mut alphabet = vec![];
+        let mut last_char = '\0';
+        let mut in_range = false;
+
+        for c in alpha.chars() {
+            if in_range {
+                if c > last_char {
+                    for c in (last_char..=c).into_iter().skip(1) {
+                        alphabet.push(c)
+                    }
+                } else if c < last_char {
+                    for c in c..last_char {
+                        alphabet.push(c)
+                    }
+                }
+                in_range = false;
+            } else if c == '-' && last_char != '\0' {
+                in_range = true;
+            } else {
+                alphabet.push(c);
+                last_char = c;
+            }
+        }
+
+        alphabet.sort();
+        text.filter(|c| alphabet.binary_search(&c).is_ok())
+    } else {
+        text
+    };
+
+    let j = if sub_m.is_present("pretty") {
+        serde_json::to_string_pretty(&text)
+    } else {
+        serde_json::to_string(&text)
+    }.expect("Serialization failed");
+    println!("{}", j);
+}
+
 fn main() {
     let app_m = clap_app!(kuehlmak =>
         (version: "0.1")
         (author: "Felix Kuehling <felix.kuehling@gmail.com>")
         (about: "Keyboard layout generator and analyzer")
+        (@subcommand textstats =>
+            (about: "Compute text statistics, write JSON to stdout")
+            (version: "0.1")
+            (@arg alphabet: -a --alphabet +takes_value
+                "Filter stats only for those symbols\n(e.g. '-_a-z;,./<>?:')")
+            (@arg pretty: --pretty
+                "Pretty-print JSON output")
+            (@arg TEXT: +required
+                "Text or JSON file to use as input, '-' for stdin")
+        )
         (@subcommand anneal =>
             (about: "Generate a layout with Simulated Annealing")
             (version: "0.1")
@@ -417,6 +471,8 @@ fn main() {
                                               .unwrap()),
         Some("eval") => eval_command(app_m.subcommand_matches("eval")
                                           .unwrap()),
+        Some("textstats") => textstats_command(app_m.subcommand_matches("textstats")
+                                                    .unwrap()),
         Some(unknown) => panic!("Unhandled subcommand: {}", unknown),
         None => {
             eprintln!("No subcommand given.\n{}", app_m.usage());
