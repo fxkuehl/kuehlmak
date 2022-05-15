@@ -133,8 +133,8 @@ impl FromStr for TextStats {
         for c in text.chars() {
             i += 1;
             if i % 1000000 == 0 {
-                println!("Processing text ngrams: {}",
-                         i as f64 / len as f64 * 100.0);
+                eprint!("Processing text ngrams: {:5.2}%\r",
+                        i as f64 / len as f64 * 100.0);
             }
 
             for c in c.to_lowercase() {
@@ -154,6 +154,9 @@ impl FromStr for TextStats {
                     }
                 }
             }
+        }
+        if i > 1000000 {
+            eprintln!("Processing text ngrams: 100.00%\r");
         }
 
         Self::from_maps(s_map, b_map, t_map)
