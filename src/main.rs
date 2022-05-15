@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::ffi::OsStr;
 use std::process;
 use std::env;
-use std::io;
+use std::io::{Read, self};
 use std::fs;
 
 static QWERTY: &str =
@@ -60,7 +60,15 @@ fn config_from_file<P>(path: P) -> KuehlmakParams
 }
 
 fn text_from_file(filename: &str) -> TextStats {
-    let contents = fs::read_to_string(filename).unwrap_or_else(|e| {
+    let contents = if filename == "-" {
+        let mut s = String::new();
+        match io::stdin().read_to_string(&mut s) {
+            Ok(_size) => Ok(s),
+            Err(e) => Err(e),
+        }
+    } else {
+        fs::read_to_string(filename)
+    }.unwrap_or_else(|e| {
         eprintln!("Failed to read TEXT file '{}': {}", filename, e);
         process::exit(1)
     });
@@ -376,7 +384,7 @@ fn main() {
             (@arg steps: -s --steps +takes_value
                 "Steps per annealing iteration [10000]")
             (@arg TEXT: +required
-                "Text or JSON file to use as input")
+                "Text or JSON file to use as input, '-' for stdin")
         )
         (@subcommand choose =>
             (about: "Choose a layout")
@@ -386,7 +394,7 @@ fn main() {
             (@arg percentile: -p --percentile +takes_value
                 "Top percentile of layouts to consider")
             (@arg TEXT: +required
-                "Text or JSON file to use as input")
+                "Text or JSON file to use as input, '-' for stdin")
         )
         (@subcommand eval =>
             (about: "Evaluate layouts")
@@ -396,7 +404,7 @@ fn main() {
             (@arg verbose: -v --verbose
                 "Print extra information for each layout")
             (@arg TEXT: +required
-                "Text or JSON file to use as input")
+                "Text or JSON file to use as input, '-' for stdin")
             (@arg LAYOUT: +multiple
                 "Layout to evaluate")
         )
