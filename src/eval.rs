@@ -519,7 +519,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         write!(w, "                        Reversing |")?;
         write_heat_row(w, key_space[1])?;
 
-        write!(w, "Total+Constraints   {:6.4}{:+7.4} |",
+        write!(w, "Total+Constraints {:7.4}{:+8.4} |",
                self.total, self.constraints)?;
         write_key_row(w, key_space[2])?;
 
