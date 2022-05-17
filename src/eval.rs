@@ -609,8 +609,9 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                self.total, self.constraints)?;
         write_key_row(w, key_space[2])?;
 
-        write!(w, "Hand runs            {:4.2} : {:4.2}  |",
-               self.hand_runs[0], self.hand_runs[1])?;
+        write!(w, "Hand runs {:4.2}:{:4.2}      ={:7.4} |",
+               self.hand_runs[0], self.hand_runs[1],
+               self.total + self.constraints)?;
         write_heat_row(w, key_space[2])?;
 
         Ok(())
