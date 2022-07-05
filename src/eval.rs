@@ -5,6 +5,7 @@ use std::io::Write as IoWrite;
 use std::fmt;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
+use std::collections::BTreeMap;
 use serde::{Serialize, Deserialize};
 
 // Layout: 2 chars per key (normal/shifted), 10 keys per row, 3 rows
@@ -246,6 +247,9 @@ pub trait EvalScores {
     fn layout(&self) -> Layout;
     fn layout_ref(&self) -> &Layout;
     fn total(&self) -> f64;
+
+    fn get_scores(&self) -> Vec<f64>;
+    fn get_score_names() -> BTreeMap<String, usize>;
 
     fn write_to_db(&self, dir: &str) -> io::Result<()> {
         let path: PathBuf =
@@ -716,6 +720,41 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
     }
     fn layout_ref(&self) -> &Layout {&self.layout}
     fn total(&self) -> f64 {self.total + self.constraints}
+
+    fn get_scores(&self) -> Vec<f64> {
+        vec![
+            self.total,
+            self.constraints,
+            self.effort,
+            self.travel,
+            self.imbalance,
+            self.bigram_counts[BIGRAM_FAST] as f64,
+            self.bigram_counts[BIGRAM_SAME_FINGER] as f64,
+            self.bigram_counts[BIGRAM_ROW_JUMPING] as f64,
+            self.bigram_counts[BIGRAM_TIRING] as f64,
+            self.trigram_counts[TRIGRAM_FAST] as f64,
+            self.trigram_counts[TRIGRAM_SAME_FINGER] as f64,
+            self.trigram_counts[TRIGRAM_ROW_JUMPING] as f64,
+            self.trigram_counts[TRIGRAM_REVERSING] as f64,
+        ]
+    }
+    fn get_score_names() -> BTreeMap<String, usize> {
+        BTreeMap::from([
+            ("total".to_string(), 0),
+            ("constraints".to_string(), 1),
+            ("effort".to_string(), 2),
+            ("travel".to_string(), 3),
+            ("imbalance".to_string(), 4),
+            ("fast_bigrams".to_string(), 5),
+            ("same_finger_bigrams".to_string(), 6),
+            ("row_jumping_bigrams".to_string(), 7),
+            ("tiring_bigrams".to_string(), 8),
+            ("fast_trigrams".to_string(), 9),
+            ("same_finger_trigrams".to_string(), 10),
+            ("row_jumping_trigrams".to_string(), 11),
+            ("reversing_trigrams".to_string(), 12),
+        ])
+    }
 }
 
 impl<'a> EvalModel<'a> for KuehlmakModel {

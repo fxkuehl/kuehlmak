@@ -2,7 +2,7 @@ use kuehlmak::TextStats;
 use kuehlmak::{
     layout_from_str, layout_distance, Layout,
     EvalModel, EvalScores,
-    KuehlmakModel, KuehlmakParams,
+    KuehlmakModel, KuehlmakParams, KuehlmakScores,
     Anneal
 };
 
@@ -367,6 +367,103 @@ fn choose_command(sub_m: &ArgMatches) {
     }
 }
 
+fn rank_command(sub_m: &ArgMatches) {
+    let mut config: Option<KuehlmakParams> = None;
+    let mut layouts: Vec<Layout> = Vec::new();
+    let dir = sub_m.value_of("dir").unwrap();
+    let paths = get_dir_paths(dir).unwrap();
+    for path in paths.into_iter().filter(|p| p.is_file()) {
+        match path.extension().and_then(OsStr::to_str) {
+            Some("kbl") => {
+                layouts.push(layout_from_file(&path));
+            },
+            Some("toml")
+                    if path.file_name().unwrap() == "config.toml" => {
+                config = Some(config_from_file(&path));
+            },
+            _ => (), // ignore other files
+        }
+    }
+
+    // Won't panic because TEXT is mandatory
+    let text_filename = sub_m.value_of("TEXT").unwrap();
+    let text = text_from_file(text_filename);
+    // Not filtering with any alphabet because different layouts may use
+    // different alphabets.
+
+    let kuehlmak_model = KuehlmakModel::new(config);
+    let score_name_map = KuehlmakScores::get_score_names();
+
+    let mut scores: Vec<_> = layouts.iter().map(|l| {
+        let s = kuehlmak_model.eval_layout(l, &text, 1.0);
+        let cs = s.get_scores();
+        (s, cs, 0usize, vec![0usize; score_name_map.len()])
+    }).collect();
+
+    // Sort scores by different criteria and add up rankings per layout
+    let score_names = sub_m.value_of("scores").unwrap_or("total");
+    for name in score_names.split(',') {
+        let raw_name = if name.starts_with('+') {&name[1..]} else {name};
+
+        if let Some(&score) = score_name_map.get(raw_name) {
+            let mut sorted_scores: Vec<_> = scores.iter_mut().collect();
+            sorted_scores.sort_by(|(_, a, _, _), (_, b, _, _)|
+                                  a[score].partial_cmp(&b[score]).unwrap());
+            if name.starts_with('+') {
+                sorted_scores.reverse();
+            }
+            let mut r = 0;
+            let mut inc = 1;
+            let mut prev = sorted_scores[0].1[score];
+            for (_, comp_score, rank, comp_rank) in sorted_scores.into_iter()
+                                                                 .skip(1) {
+                // Give the same rank to layouts with equal score
+                if prev != comp_score[score] {
+                    r += inc;
+                    inc = 1;
+                    prev = comp_score[score];
+                } else {
+                    inc += 1;
+                }
+                comp_rank[score] = r;
+                *rank += r;
+            }
+        } else {
+            eprintln!("Unknown score name {}. Valid names are:", name);
+            for name in score_name_map.keys() {
+                eprintln!("  {}", name);
+            }
+            process::exit(1);
+        }
+    }
+
+    // Sort scores by cumulative ranking
+    let mut ranked_scores: Vec<_> = scores.iter().collect();
+    ranked_scores.sort_by_key(|&(_, _, r, _)| r);
+
+    // Print the first n layouts
+    let n: usize = match sub_m.value_of("number") {
+        Some(number) => number.parse().unwrap_or_else(|e| {
+            eprintln!("Invalid number '{}': {}", number, e);
+            process::exit(1)
+        }),
+        None => scores.len(),
+    };
+    let stdout = &mut io::stdout();
+    for (s, _, _, cr) in ranked_scores.into_iter().take(n) {
+        print!("=== Ranks: ");
+        for name in score_names.split(',') {
+            let raw_name = if name.starts_with('+') {&name[1..]} else {name};
+            if let Some(&score) = score_name_map.get(raw_name) {
+                print!("{}={} ", name, cr[score]);
+            }
+        }
+        println!("===");
+        s.write(stdout).unwrap();
+        println!();
+    }
+}
+
 fn textstats_command(sub_m: &ArgMatches) {
     // Won't panic because TEXT is mandatory
     let text_filename = sub_m.value_of("TEXT").unwrap();
@@ -462,6 +559,18 @@ fn main() {
             (@arg LAYOUT: +multiple
                 "Layout to evaluate")
         )
+        (@subcommand rank =>
+            (about: "Rank layouts")
+            (version: "0.1")
+            (@arg dir: -d --dir +takes_value +required
+                "DB and configuration directory")
+            (@arg number: -n --number +takes_value
+                "Number of top-ranked layouts to output")
+            (@arg scores: -s --scores +takes_value
+                "Comma-separated list of scores to rank layouts by")
+            (@arg TEXT: +required
+                "Text or JSON file to use as input, '-' for stdin")
+        )
     ).get_matches();
 
     match app_m.subcommand_name() {
@@ -471,6 +580,8 @@ fn main() {
                                               .unwrap()),
         Some("eval") => eval_command(app_m.subcommand_matches("eval")
                                           .unwrap()),
+        Some("rank") => rank_command(app_m.subcommand_matches("rank")
+                                              .unwrap()),
         Some("textstats") => textstats_command(app_m.subcommand_matches("textstats")
                                                     .unwrap()),
         Some(unknown) => panic!("Unhandled subcommand: {}", unknown),
