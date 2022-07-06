@@ -163,7 +163,7 @@ mod serde_layout {
 // How different are two layouts? Count how many symbols are on the same
 // key, finger and hand to make up a score between 0 (identical) and
 // 1 (as different as it gets).
-pub fn layout_distance(a: &Layout, b: &Layout) -> f64 {
+fn layout_distance(a: &Layout, b: &Layout) -> f64 {
     // Build indexed arrays of the lower-case symbols of both layouts
     let mut i = 0usize;
     let mut c = || {i += 1; ((i-1) as u32, a[i-1][0])};
@@ -245,7 +245,6 @@ pub trait EvalScores {
     fn write_extra<W>(&self, w: &mut W) -> io::Result<()>
         where W: IoWrite;
     fn layout(&self) -> Layout;
-    fn layout_ref(&self) -> &Layout;
     fn total(&self) -> f64;
 
     fn get_scores(&self) -> Vec<f64>;
@@ -718,7 +717,6 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         }
         self.layout
     }
-    fn layout_ref(&self) -> &Layout {&self.layout}
     fn total(&self) -> f64 {self.total + self.constraints}
 
     fn get_scores(&self) -> Vec<f64> {
