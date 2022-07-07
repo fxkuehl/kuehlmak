@@ -21,18 +21,23 @@ r#"q  w  e  r  t  y  u  i  o  p
    a  s  d  f  g  h  j  k  l ;:
    z  x  c  v  b  n  m ,< .> /?"#;
 
-fn layout_from_file<P>(path: P) -> Layout
+fn layout_from_file<P>(path: P) -> (Layout, usize)
     where P: AsRef<Path> + Copy
 {
-    let layout = fs::read_to_string(path).unwrap_or_else(|e| {
+    let string = fs::read_to_string(path).unwrap_or_else(|e| {
         eprintln!("Failed to read layout file '{}': {}",
                   path.as_ref().display(), e);
         process::exit(1)
     });
-    layout_from_str(&layout).unwrap_or_else(|e| {
+    let popularity = if let Some(last_line) = string.lines().last() {
+        last_line.chars().filter(|&c| c == '#').count()
+    } else {
+        0usize
+    };
+    (layout_from_str(&string).unwrap_or_else(|e| {
         eprintln!("Failed to parse layout: {}", e);
         process::exit(1)
-    })
+    }), popularity)
 }
 
 fn config_from_file<P>(path: P) -> KuehlmakParams
@@ -156,7 +161,7 @@ fn eval_command(sub_m: &ArgMatches) {
     let stdout = &mut io::stdout();
 
     for filename in sub_m.values_of("LAYOUT").into_iter().flatten() {
-        let layout = layout_from_file(filename);
+        let (layout, _) = layout_from_file(filename);
 
         let scores = kuehlmak_model.eval_layout(&layout, &text, 1.0);
 
@@ -176,7 +181,7 @@ fn get_dir_paths(dir: &str) -> io::Result<Vec<PathBuf>> {
 
 fn rank_command(sub_m: &ArgMatches) {
     let mut config: Option<KuehlmakParams> = None;
-    let mut layouts: Vec<Layout> = Vec::new();
+    let mut layouts: Vec<_> = Vec::new();
     let dir = sub_m.value_of("dir").unwrap();
     let paths = get_dir_paths(dir).unwrap();
     for path in paths.into_iter().filter(|p| p.is_file()) {
@@ -199,11 +204,13 @@ fn rank_command(sub_m: &ArgMatches) {
     // different alphabets.
 
     let kuehlmak_model = KuehlmakModel::new(config);
-    let score_name_map = KuehlmakScores::get_score_names();
+    let mut score_name_map = KuehlmakScores::get_score_names();
+    score_name_map.insert("popularity".to_string(), score_name_map.len());
 
-    let mut scores: Vec<_> = layouts.iter().map(|l| {
+    let mut scores: Vec<_> = layouts.iter().map(|(l, p)| {
         let s = kuehlmak_model.eval_layout(l, &text, 1.0);
-        let cs = s.get_scores();
+        let mut cs = s.get_scores();
+        cs.push(*p as f64);
         (s, cs, 0usize, vec![0usize; score_name_map.len()])
     }).collect();
 
@@ -220,18 +227,17 @@ fn rank_command(sub_m: &ArgMatches) {
                 sorted_scores.reverse();
             }
             let mut r = 0;
-            let mut inc = 1;
+            let mut inc = *sorted_scores[0].1.last().unwrap() as usize;
             let mut prev = sorted_scores[0].1[score];
             for (_, comp_score, rank, comp_rank) in sorted_scores.into_iter()
                                                                  .skip(1) {
                 // Give the same rank to layouts with equal score
                 if prev != comp_score[score] {
                     r += inc;
-                    inc = 1;
+                    inc = 0;
                     prev = comp_score[score];
-                } else {
-                    inc += 1;
                 }
+                inc += *comp_score.last().unwrap() as usize;
                 comp_rank[score] = r;
                 *rank += r;
             }
@@ -257,8 +263,8 @@ fn rank_command(sub_m: &ArgMatches) {
         None => scores.len(),
     };
     let stdout = &mut io::stdout();
-    for (s, _, _, cr) in ranked_scores.into_iter().take(n) {
-        print!("=== Ranks: ");
+    for (s, cs, _, cr) in ranked_scores.into_iter().take(n) {
+        print!("=== {:.0}x ", cs.last().unwrap());
         for name in score_names.split(',') {
             let raw_name = if name.starts_with('+') {&name[1..]} else {name};
             if let Some(&score) = score_name_map.get(raw_name) {
