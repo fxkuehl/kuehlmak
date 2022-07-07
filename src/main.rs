@@ -8,6 +8,8 @@ use kuehlmak::{
 
 use clap::{clap_app, ArgMatches};
 
+use serde::{Serialize, Deserialize};
+
 use std::path::{PathBuf, Path};
 use std::str::FromStr;
 use std::ffi::OsStr;
@@ -40,7 +42,14 @@ fn layout_from_file<P>(path: P) -> (Layout, usize)
     }), popularity)
 }
 
-fn config_from_file<P>(path: P) -> KuehlmakParams
+#[derive(Serialize, Deserialize)]
+struct Config {
+    text_file: Option<PathBuf>,
+    #[serde(flatten)]
+    params: KuehlmakParams,
+}
+
+fn config_from_file<P>(path: P) -> Config
     where P: AsRef<Path> + Copy
 {
     let c = fs::read_to_string(path).unwrap_or_else(|e| {
@@ -54,31 +63,42 @@ fn config_from_file<P>(path: P) -> KuehlmakParams
     if let Some(dir) = path.as_ref().parent() {
         env::set_current_dir(dir).expect("Failed to set current dir");
     }
-    let config = toml::from_str(&c).unwrap_or_else(|e| {
+    let mut config: Config = toml::from_str(&c).unwrap_or_else(|e| {
         eprintln!("Failed to parse config file '{}': {}",
                   path.as_ref().display(), e);
         process::exit(1)
     });
+    if let Some(path) = config.text_file.as_mut() {
+        *path = path.canonicalize().unwrap_or_else(|e| {
+            eprintln!("Invalid path '{}': {}", path.display(), e);
+            process::exit(1);
+        });
+    }
     env::set_current_dir(&prev_dir).expect("Failed to set current dir");
     config
 }
 
-fn text_from_file(filename: &str) -> TextStats {
-    let contents = if filename == "-" {
+fn text_from_file(path: Option<&Path>) -> TextStats {
+    let mut is_json = false;
+    let contents = if let Some(path) = path {
+        is_json = path.extension().map(|e| e.to_ascii_lowercase() == "json")
+                                  .unwrap_or(false);
+        fs::read_to_string(path)
+    } else {
         let mut s = String::new();
         match io::stdin().read_to_string(&mut s) {
             Ok(_size) => Ok(s),
             Err(e) => Err(e),
         }
-    } else {
-        fs::read_to_string(filename)
     }.unwrap_or_else(|e| {
-        eprintln!("Failed to read TEXT file '{}': {}", filename, e);
+        eprintln!("Failed to read text file '{}': {}",
+                  path.unwrap_or("<stdin>".as_ref()).display(), e);
         process::exit(1)
     });
-    if filename.ends_with(".json") {
+    if is_json {
         serde_json::from_str::<TextStats>(&contents).unwrap_or_else(|e| {
-            eprintln!("Failed to parse JSON file '{}': {}", filename, e);
+            eprintln!("Failed to parse JSON file '{}': {}",
+                      path.unwrap().display(), e);
             process::exit(1)
         })
     } else {
@@ -102,8 +122,8 @@ fn anneal_command(sub_m: &ArgMatches) {
         process::exit(1)
     });
 
-    // Won't panic because TEXT is mandatory
-    let text_filename = sub_m.value_of("TEXT").unwrap();
+    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or(
+                        config.as_ref().and_then(|c| c.text_file.as_deref()));
     let text = text_from_file(text_filename);
     let mut alphabet: Vec<_> = layout.iter().flatten().copied().collect();
     alphabet.sort();
@@ -119,7 +139,7 @@ fn anneal_command(sub_m: &ArgMatches) {
         }
     };
 
-    let kuehlmak_model = KuehlmakModel::new(config);
+    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
     let mut anneal = Anneal::new(&kuehlmak_model, &text, layout, shuffle,
                                  steps);
 
@@ -149,15 +169,15 @@ fn anneal_command(sub_m: &ArgMatches) {
 fn eval_command(sub_m: &ArgMatches) {
     let config = sub_m.value_of("config").map(config_from_file);
 
-    // Won't panic because TEXT is mandatory
-    let text_filename = sub_m.value_of("TEXT").unwrap();
+    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or(
+                        config.as_ref().and_then(|c| c.text_file.as_deref()));
     let text = text_from_file(text_filename);
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
 
     let verbose = sub_m.is_present("verbose");
 
-    let kuehlmak_model = KuehlmakModel::new(config);
+    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
     let stdout = &mut io::stdout();
 
     for filename in sub_m.values_of("LAYOUT").into_iter().flatten() {
@@ -180,7 +200,7 @@ fn get_dir_paths(dir: &str) -> io::Result<Vec<PathBuf>> {
 }
 
 fn rank_command(sub_m: &ArgMatches) {
-    let mut config: Option<KuehlmakParams> = None;
+    let mut config: Option<Config> = None;
     let mut layouts: Vec<_> = Vec::new();
     let dir = sub_m.value_of("dir").unwrap();
     let paths = get_dir_paths(dir).unwrap();
@@ -197,13 +217,13 @@ fn rank_command(sub_m: &ArgMatches) {
         }
     }
 
-    // Won't panic because TEXT is mandatory
-    let text_filename = sub_m.value_of("TEXT").unwrap();
+    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or(
+                        config.as_ref().and_then(|c| c.text_file.as_deref()));
     let text = text_from_file(text_filename);
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
 
-    let kuehlmak_model = KuehlmakModel::new(config);
+    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
     let mut score_name_map = KuehlmakScores::get_score_names();
     score_name_map.insert("popularity".to_string(), score_name_map.len());
 
@@ -278,8 +298,7 @@ fn rank_command(sub_m: &ArgMatches) {
 }
 
 fn textstats_command(sub_m: &ArgMatches) {
-    // Won't panic because TEXT is mandatory
-    let text_filename = sub_m.value_of("TEXT").unwrap();
+    let text_filename = sub_m.value_of("text").map(|p| p.as_ref());
     let text = text_from_file(text_filename);
 
     let text = if let Some(alpha) = sub_m.value_of("alphabet") {
@@ -333,8 +352,8 @@ fn main() {
                 "Filter stats only for those symbols\n(e.g. '-_a-z;,./<>?:')")
             (@arg pretty: --pretty
                 "Pretty-print JSON output")
-            (@arg TEXT: +required
-                "Text or JSON file to use as input, '-' for stdin")
+            (@arg text: -t --text +takes_value
+                "Text or JSON file to use as input, stdin if not specified")
         )
         (@subcommand anneal =>
             (about: "Generate a layout with Simulated Annealing")
@@ -347,8 +366,8 @@ fn main() {
                 "Don't shuffle initial layout")
             (@arg steps: -s --steps +takes_value
                 "Steps per annealing iteration [10000]")
-            (@arg TEXT: +required
-                "Text or JSON file to use as input, '-' for stdin")
+            (@arg text: -t --text +takes_value
+                "Text or JSON file to use as input, stdin if not specified here or in config")
         )
         (@subcommand eval =>
             (about: "Evaluate layouts")
@@ -357,8 +376,8 @@ fn main() {
                 "Configuration file")
             (@arg verbose: -v --verbose
                 "Print extra information for each layout")
-            (@arg TEXT: +required
-                "Text or JSON file to use as input, '-' for stdin")
+            (@arg text: -t --text +takes_value
+                "Text or JSON file to use as input, stdin if not specified here or in config")
             (@arg LAYOUT: +multiple
                 "Layout to evaluate")
         )
@@ -371,8 +390,8 @@ fn main() {
                 "Number of top-ranked layouts to output")
             (@arg scores: -s --scores +takes_value
                 "Comma-separated list of scores to rank layouts by")
-            (@arg TEXT: +required
-                "Text or JSON file to use as input, '-' for stdin")
+            (@arg text: -t --text +takes_value
+                "Text or JSON file to use as input, stdin if not specified here or in config")
         )
     ).get_matches();
 
