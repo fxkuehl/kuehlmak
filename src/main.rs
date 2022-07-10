@@ -149,6 +149,7 @@ fn anneal_command(sub_m: &ArgMatches) {
             process::exit(1)
         }
     };
+    let progress = sub_m.is_present("progress");
 
     // Generate n layouts
     let n: usize = match sub_m.value_of("number") {
@@ -164,17 +165,21 @@ fn anneal_command(sub_m: &ArgMatches) {
 
         let mut scores = kuehlmak_model.eval_layout(&layout, &text, 1.0);
         let stdout = &mut io::stdout();
-        anneal.write_stats(stdout).unwrap();
-        scores.write(stdout).unwrap();
+        if progress {
+            anneal.write_stats(stdout).unwrap();
+            scores.write(stdout).unwrap();
+        }
 
         loop {
             if let Some(s) = anneal.next() {
-                // VT100: cursor up 9 rows
-                print!("\x1b[9A");
-                // VT100 clear line (top row of the last keymap)
-                print!("\x1b[2K");
-                anneal.write_stats(stdout).unwrap();
-                s.write(stdout).unwrap();
+                if progress {
+                    // VT100: cursor up 9 rows
+                    print!("\x1b[9A");
+                    // VT100 clear line (top row of the last keymap)
+                    print!("\x1b[2K");
+                    anneal.write_stats(stdout).unwrap();
+                    s.write(stdout).unwrap();
+                }
 
                 scores = s;
             } else {
@@ -182,6 +187,10 @@ fn anneal_command(sub_m: &ArgMatches) {
             }
         }
 
+        if !progress {
+            println!();
+            scores.write(stdout).unwrap();
+        }
         scores.write_to_db(dir).unwrap();
     }
 }
@@ -393,6 +402,8 @@ fn main() {
                 "Steps per annealing iteration [10000]")
             (@arg number: -n --number +takes_value
                 "Number of layouts to generate [1]")
+            (@arg progress: -p --progress
+                "Print layouts in progress")
         )
         (@subcommand eval =>
             (about: "Evaluate layouts")
