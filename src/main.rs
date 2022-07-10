@@ -138,6 +138,8 @@ fn anneal_command(sub_m: &ArgMatches) {
     alphabet.sort();
     let text = text.filter(|c| alphabet.binary_search(&c).is_ok());
 
+    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
+
     let shuffle = !sub_m.is_present("noshuffle");
     let steps: u64 = match sub_m.value_of("steps")
                                 .unwrap_or("10000").parse() {
@@ -148,31 +150,40 @@ fn anneal_command(sub_m: &ArgMatches) {
         }
     };
 
-    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
-    let mut anneal = Anneal::new(&kuehlmak_model, &text, layout, shuffle,
-                                 steps);
+    // Generate n layouts
+    let n: usize = match sub_m.value_of("number") {
+        Some(number) => number.parse().unwrap_or_else(|e| {
+            eprintln!("Invalid number '{}': {}", number, e);
+            process::exit(1)
+        }),
+        None => 1,
+    };
+    for _ in 0..n {
+        let mut anneal = Anneal::new(&kuehlmak_model, &text, layout, shuffle,
+                                     steps);
 
-    let mut scores = kuehlmak_model.eval_layout(&layout, &text, 1.0);
-    let stdout = &mut io::stdout();
-    anneal.write_stats(stdout).unwrap();
-    scores.write(stdout).unwrap();
+        let mut scores = kuehlmak_model.eval_layout(&layout, &text, 1.0);
+        let stdout = &mut io::stdout();
+        anneal.write_stats(stdout).unwrap();
+        scores.write(stdout).unwrap();
 
-    loop {
-        if let Some(s) = anneal.next() {
-            // VT100: cursor up 9 rows
-            print!("\x1b[9A");
-            // VT100 clear line (top row of the last keymap)
-            print!("\x1b[2K");
-            anneal.write_stats(stdout).unwrap();
-            s.write(stdout).unwrap();
+        loop {
+            if let Some(s) = anneal.next() {
+                // VT100: cursor up 9 rows
+                print!("\x1b[9A");
+                // VT100 clear line (top row of the last keymap)
+                print!("\x1b[2K");
+                anneal.write_stats(stdout).unwrap();
+                s.write(stdout).unwrap();
 
-            scores = s;
-        } else {
-            break;
+                scores = s;
+            } else {
+                break;
+            }
         }
-    }
 
-    scores.write_to_db(dir).unwrap();
+        scores.write_to_db(dir).unwrap();
+    }
 }
 
 fn eval_command(sub_m: &ArgMatches) {
@@ -376,10 +387,12 @@ fn main() {
                 "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg layout: -l --layout +takes_value
                 "Initial layout filename [QWERTY]")
-            (@arg noshuffle: -n --("no-shuffle")
+            (@arg noshuffle: --("no-shuffle")
                 "Don't shuffle initial layout")
             (@arg steps: -s --steps +takes_value
                 "Steps per annealing iteration [10000]")
+            (@arg number: -n --number +takes_value
+                "Number of layouts to generate [1]")
         )
         (@subcommand eval =>
             (about: "Evaluate layouts")
