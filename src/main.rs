@@ -85,6 +85,7 @@ fn text_from_file(path: Option<&Path>) -> TextStats {
                                   .unwrap_or(false);
         fs::read_to_string(path)
     } else {
+        println!("Reading text from stdin ...");
         let mut s = String::new();
         match io::stdin().read_to_string(&mut s) {
             Ok(_size) => Ok(s),
@@ -108,7 +109,15 @@ fn text_from_file(path: Option<&Path>) -> TextStats {
 }
 
 fn anneal_command(sub_m: &ArgMatches) {
-    let config = sub_m.value_of("config").map(config_from_file);
+    let dir: &Path = sub_m.value_of("dir").unwrap().as_ref();
+    if !dir.is_dir() {
+        eprintln!("Not a directory: '{}'", dir.display());
+        process::exit(1);
+    }
+    let db_config: PathBuf = [dir, "config.toml".as_ref()].iter().collect();
+    let config = sub_m.value_of("config").map(str::as_ref)
+                      .or(Some(db_config.as_path()).filter(|p| p.is_file()))
+                      .map(config_from_file);
 
     let layout = match sub_m.value_of("layout") {
         Some(filename) => fs::read_to_string(filename).unwrap_or_else(|e| {
@@ -163,7 +172,7 @@ fn anneal_command(sub_m: &ArgMatches) {
         }
     }
 
-    scores.write_to_db("./db").unwrap();
+    scores.write_to_db(dir).unwrap();
 }
 
 fn eval_command(sub_m: &ArgMatches) {
@@ -200,7 +209,7 @@ fn get_dir_paths(dir: &str) -> io::Result<Vec<PathBuf>> {
 }
 
 fn rank_command(sub_m: &ArgMatches) {
-    let mut config: Option<Config> = None;
+    let mut config = sub_m.value_of("config").map(config_from_file);
     let mut layouts: Vec<_> = Vec::new();
     let dir = sub_m.value_of("dir").unwrap();
     let paths = get_dir_paths(dir).unwrap();
@@ -210,7 +219,8 @@ fn rank_command(sub_m: &ArgMatches) {
                 layouts.push(layout_from_file(&path));
             },
             Some("toml")
-                    if path.file_name().unwrap() == "config.toml" => {
+                    if config.is_none() &&
+                       path.file_name().unwrap() == "config.toml" => {
                 config = Some(config_from_file(&path));
             },
             _ => (), // ignore other files
@@ -353,32 +363,34 @@ fn main() {
             (@arg pretty: --pretty
                 "Pretty-print JSON output")
             (@arg text: -t --text +takes_value
-                "Text or JSON file to use as input, stdin if not specified")
+                "Text or JSON file to use as input [stdin]")
         )
         (@subcommand anneal =>
             (about: "Generate a layout with Simulated Annealing")
             (version: "0.1")
+            (@arg dir: -d --dir +takes_value +required
+                "DB and configuration directory")
             (@arg config: -c --config +takes_value
-                "Configuration file")
+                "Configuration file [<dir>/config.toml]")
+            (@arg text: -t --text +takes_value
+                "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg layout: -l --layout +takes_value
                 "Initial layout filename [QWERTY]")
             (@arg noshuffle: -n --("no-shuffle")
                 "Don't shuffle initial layout")
             (@arg steps: -s --steps +takes_value
                 "Steps per annealing iteration [10000]")
-            (@arg text: -t --text +takes_value
-                "Text or JSON file to use as input, stdin if not specified here or in config")
         )
         (@subcommand eval =>
             (about: "Evaluate layouts")
             (version: "0.1")
             (@arg config: -c --config +takes_value
                 "Configuration file")
+            (@arg text: -t --text +takes_value
+                "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg verbose: -v --verbose
                 "Print extra information for each layout")
-            (@arg text: -t --text +takes_value
-                "Text or JSON file to use as input, stdin if not specified here or in config")
-            (@arg LAYOUT: +multiple
+            (@arg LAYOUT: +multiple +required
                 "Layout to evaluate")
         )
         (@subcommand rank =>
@@ -386,12 +398,14 @@ fn main() {
             (version: "0.1")
             (@arg dir: -d --dir +takes_value +required
                 "DB and configuration directory")
+            (@arg config: -c --config +takes_value
+                "Configuration file [<dir>/config.toml]")
+            (@arg text: -t --text +takes_value
+                "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg number: -n --number +takes_value
                 "Number of top-ranked layouts to output")
             (@arg scores: -s --scores +takes_value
                 "Comma-separated list of scores to rank layouts by")
-            (@arg text: -t --text +takes_value
-                "Text or JSON file to use as input, stdin if not specified here or in config")
         )
     ).get_matches();
 

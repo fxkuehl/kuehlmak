@@ -4,7 +4,7 @@ use std::io::{self, BufWriter};
 use std::io::Write as IoWrite;
 use std::fmt;
 use std::fmt::Write as FmtWrite;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
 use serde::{Serialize, Deserialize};
 
@@ -85,7 +85,7 @@ pub fn layout_to_str(layout: &Layout) -> String {
     s
 }
 
-pub fn layout_to_filename(layout: &Layout) -> String {
+pub fn layout_to_filename(layout: &Layout) -> PathBuf {
     let mut s = String::new();
     for &[a, _] in layout {
         // Some substitutions for characters that don't work well in
@@ -107,7 +107,7 @@ pub fn layout_to_filename(layout: &Layout) -> String {
         });
     }
     s.push_str(".kbl");
-    s
+    PathBuf::from(s)
 }
 
 mod serde_layout {
@@ -250,7 +250,7 @@ pub trait EvalScores {
     fn get_scores(&self) -> Vec<f64>;
     fn get_score_names() -> BTreeMap<String, usize>;
 
-    fn write_to_db(&self, dir: &str) -> io::Result<()> {
+    fn write_to_db(&self, dir: &Path) -> io::Result<()> {
         let path: PathBuf =
             [dir, &layout_to_filename(&self.layout())].iter().collect();
         if let Ok(file) = OpenOptions::new()
