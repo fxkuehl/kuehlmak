@@ -14,7 +14,7 @@ pub type Symbol = [char; 1];
 pub type Bigram = [char; 2];
 pub type Trigram = [char; 3];
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct NGramStats<T> {
     map: MyMap<T, (u64, usize)>,    // n-Gram counters+tokens in a hashmap
     list: Vec<(T, u64, usize)>,     // n-Gram list sorted by descending count
@@ -63,7 +63,7 @@ struct TextMaps {
     trigrams: MyMap<String, u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(try_from = "TextMaps")]
 pub struct TextStats {
     #[serde(rename = "symbols")]

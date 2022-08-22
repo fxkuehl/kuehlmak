@@ -10,12 +10,15 @@ use clap::{clap_app, ArgMatches};
 
 use serde::{Serialize, Deserialize};
 
+use threadpool::ThreadPool;
+use std::sync::mpsc::channel;
+
 use std::path::{PathBuf, Path};
 use std::str::FromStr;
 use std::ffi::OsStr;
 use std::process;
 use std::env;
-use std::io::{Read, self};
+use std::io::{Read, Write, self};
 use std::fs;
 
 static QWERTY: &str =
@@ -152,7 +155,14 @@ fn anneal_command(sub_m: &ArgMatches) {
     };
     let progress = sub_m.is_present("progress");
 
-    // Generate n layouts
+    let jobs: usize = match sub_m.value_of("jobs") {
+        Some(number) => number.parse().unwrap_or_else(|e| {
+            eprintln!("Invalid number '{}': {}", number, e);
+            process::exit(1)
+        }),
+        None => 1,
+    };
+
     let n: usize = match sub_m.value_of("number") {
         Some(number) => number.parse().unwrap_or_else(|e| {
             eprintln!("Invalid number '{}': {}", number, e);
@@ -160,35 +170,60 @@ fn anneal_command(sub_m: &ArgMatches) {
         }),
         None => 1,
     };
+
+    // Generate n layouts using j worker threads
+    let pool = ThreadPool::new(jobs);
+    let (tx, rx) = channel();
+    let stdout = &mut io::stdout();
     for _ in 0..n {
-        let mut anneal = Anneal::new(&kuehlmak_model, &text, layout, shuffle,
-                                     steps);
+        // Clone stuff that gets moved into the worker closure
+        let model = kuehlmak_model.clone();
+        let text = text.clone();
+        let tx = tx.clone();
+        let dir = dir.to_owned();
 
-        let mut scores = kuehlmak_model.eval_layout(&layout, &text, 1.0);
-        let stdout = &mut io::stdout();
-        if progress {
-            anneal.write_stats(stdout).unwrap();
-            scores.write(stdout).unwrap();
-        }
+        pool.execute(move || {
+            let mut anneal = Anneal::new(&model, &text, layout, shuffle, steps);
+            let mut scores = model.eval_layout(&layout, &text, 1.0);
 
-        while let Some(s) = anneal.next() {
-            if progress {
-                // VT100: cursor up 9 rows
-                print!("\x1b[9A");
-                // VT100 clear line (top row of the last keymap)
-                print!("\x1b[2K");
-                anneal.write_stats(stdout).unwrap();
-                s.write(stdout).unwrap();
+            while let Some(s) = anneal.next() {
+                if progress {
+                    let mut w = Vec::new();
+                    anneal.write_stats(&mut w).unwrap();
+                    s.write(&mut w).unwrap();
+                    // VT100: cursor up 9 rows
+                    write!(&mut w, "\x1b[9A").unwrap();
+                    tx.send(w).unwrap();
+                }
+
+                scores = s;
             }
 
-            scores = s;
-        }
+            let mut w = Vec::new();
+            writeln!(&mut w).unwrap();
+            scores.write(&mut w).unwrap();
+            tx.send(w).unwrap();
 
-        if !progress {
-            println!();
-            scores.write(stdout).unwrap();
+            scores.write_to_db(&dir).unwrap();
+        });
+
+        // Process messages until the queue drops below a threshold. This
+        // avoids unbounded memory allocations for the worker closures.
+        // Assume that workers send messages before terminating, so we can
+        // wait for messages without worrying that workers will go idle.
+        while pool.queued_count() >= jobs {
+            stdout.write(&rx.recv().unwrap()).unwrap();
         }
-        scores.write_to_db(dir).unwrap();
+    }
+
+    // Drop the original sender so the receiver will start failing once all
+    // the Senders in the workers have hung up.
+    drop(tx);
+
+    // Drain any remaining messages. This implicitly waits for the workers
+    // to finish.
+    while let Ok(msg) = rx.recv() {
+        stdout.write(&msg).unwrap();
     }
 }
 
@@ -400,6 +435,8 @@ fn main() {
                 "Steps per annealing iteration [10000]")
             (@arg number: -n --number +takes_value
                 "Number of layouts to generate [1]")
+            (@arg jobs: -j --jobs +takes_value
+                "Number of jobs (threads) to run concurrently [1]")
             (@arg progress: -p --progress
                 "Print layouts in progress")
         )

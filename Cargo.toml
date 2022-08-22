@@ -12,6 +12,7 @@ toml = "0.5"
 bencher = "0.1"
 rand = { version = "0.8.4", features = ["small_rng"] }
 clap = "~2.34.0"
+threadpool = "1.8.1"
 
 [[bench]]
 name = "kuehlmak"
