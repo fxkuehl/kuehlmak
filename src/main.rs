@@ -93,7 +93,7 @@ fn text_from_file(path: Option<&Path>) -> TextStats {
         }
     }.unwrap_or_else(|e| {
         eprintln!("Failed to read text file '{}': {}",
-                  path.unwrap_or("<stdin>".as_ref()).display(), e);
+                  path.unwrap_or_else(|| "<stdin>".as_ref()).display(), e);
         process::exit(1)
     });
     if is_json {
@@ -114,9 +114,10 @@ fn anneal_command(sub_m: &ArgMatches) {
         eprintln!("Not a directory: '{}'", dir.display());
         process::exit(1);
     }
-    let db_config: PathBuf = [dir, "config.toml".as_ref()].iter().collect();
+    let db_config: PathBuf = [dir,"config.toml".as_ref()].into_iter().collect();
     let config = sub_m.value_of("config").map(str::as_ref)
-                      .or(Some(db_config.as_path()).filter(|p| p.is_file()))
+                      .or_else(|| Some(db_config.as_path())
+                                    .filter(|p| p.is_file()))
                       .map(config_from_file);
 
     let layout = match sub_m.value_of("layout") {
@@ -131,8 +132,8 @@ fn anneal_command(sub_m: &ArgMatches) {
         process::exit(1)
     });
 
-    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or(
-                        config.as_ref().and_then(|c| c.text_file.as_deref()));
+    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
+                    || config.as_ref().and_then(|c| c.text_file.as_deref()));
     let text = text_from_file(text_filename);
     let mut alphabet: Vec<_> = layout.iter().flatten().copied().collect();
     alphabet.sort();
@@ -170,21 +171,17 @@ fn anneal_command(sub_m: &ArgMatches) {
             scores.write(stdout).unwrap();
         }
 
-        loop {
-            if let Some(s) = anneal.next() {
-                if progress {
-                    // VT100: cursor up 9 rows
-                    print!("\x1b[9A");
-                    // VT100 clear line (top row of the last keymap)
-                    print!("\x1b[2K");
-                    anneal.write_stats(stdout).unwrap();
-                    s.write(stdout).unwrap();
-                }
-
-                scores = s;
-            } else {
-                break;
+        while let Some(s) = anneal.next() {
+            if progress {
+                // VT100: cursor up 9 rows
+                print!("\x1b[9A");
+                // VT100 clear line (top row of the last keymap)
+                print!("\x1b[2K");
+                anneal.write_stats(stdout).unwrap();
+                s.write(stdout).unwrap();
             }
+
+            scores = s;
         }
 
         if !progress {
@@ -198,8 +195,8 @@ fn anneal_command(sub_m: &ArgMatches) {
 fn eval_command(sub_m: &ArgMatches) {
     let config = sub_m.value_of("config").map(config_from_file);
 
-    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or(
-                        config.as_ref().and_then(|c| c.text_file.as_deref()));
+    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
+                    || config.as_ref().and_then(|c| c.text_file.as_deref()));
     let text = text_from_file(text_filename);
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
@@ -247,8 +244,8 @@ fn rank_command(sub_m: &ArgMatches) {
         }
     }
 
-    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or(
-                        config.as_ref().and_then(|c| c.text_file.as_deref()));
+    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
+                    || config.as_ref().and_then(|c| c.text_file.as_deref()));
     let text = text_from_file(text_filename);
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
@@ -267,7 +264,7 @@ fn rank_command(sub_m: &ArgMatches) {
     // Sort scores by different criteria and add up rankings per layout
     let score_names = sub_m.value_of("scores").unwrap_or("total");
     for name in score_names.split(',') {
-        let raw_name = if name.starts_with('+') {&name[1..]} else {name};
+        let raw_name = name.strip_prefix('+').unwrap_or(name);
 
         if let Some(&score) = score_name_map.get(raw_name) {
             let mut sorted_scores: Vec<_> = scores.iter_mut().collect();
@@ -316,7 +313,7 @@ fn rank_command(sub_m: &ArgMatches) {
     for (s, cs, _, cr) in ranked_scores.into_iter().take(n) {
         print!("=== {:.0}x ", cs.last().unwrap());
         for name in score_names.split(',') {
-            let raw_name = if name.starts_with('+') {&name[1..]} else {name};
+            let raw_name = name.strip_prefix('+').unwrap_or(name);
             if let Some(&score) = score_name_map.get(raw_name) {
                 print!("{}={} ", name, cr[score]);
             }
@@ -327,6 +324,7 @@ fn rank_command(sub_m: &ArgMatches) {
     }
 }
 
+#[allow(clippy::comparison_chain)]
 fn textstats_command(sub_m: &ArgMatches) {
     let text_filename = sub_m.value_of("text").map(|p| p.as_ref());
     let text = text_from_file(text_filename);

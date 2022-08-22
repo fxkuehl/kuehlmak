@@ -163,6 +163,7 @@ mod serde_layout {
 // How different are two layouts? Count how many symbols are on the same
 // key, finger and hand to make up a score between 0 (identical) and
 // 1 (as different as it gets).
+#[allow(clippy::comparison_chain)]
 fn layout_distance(a: &Layout, b: &Layout) -> f64 {
     // Build indexed arrays of the lower-case symbols of both layouts
     let mut i = 0usize;
@@ -644,11 +645,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         for (vec, name) in self.bigram_lists.iter()
                                .zip(bigram_names.into_iter())
                                .filter_map(|(vec, name)|
-                                            if let Some(vec) = vec.as_ref() {
-                                                Some((vec, name))
-                                            } else {
-                                                None
-                                            }) {
+                                    vec.as_ref().map(|vec| (vec, name))) {
             writeln!(w)?;
             writeln!(w, "{} bigrams:", name)?;
             write!(w, " Left hand:")?;
@@ -680,11 +677,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         for (vec, name) in self.trigram_lists.iter()
                                .zip(trigram_names.into_iter())
                                .filter_map(|(vec, name)|
-                                            if let Some(vec) = vec.as_ref() {
-                                                Some((vec, name))
-                                            } else {
-                                                    None
-                                            }) {
+                                    vec.as_ref().map(|vec| (vec, name))) {
             writeln!(w)?;
             writeln!(w, "{} 3-grams:", name)?;
             write!(w, " Left hand:")?;
@@ -908,8 +901,9 @@ impl KuehlmakModel {
             let bigram_type = self.bigram_types[k0][k1] as usize;
 
             scores.bigram_counts[bigram_type] += count;
-            scores.bigram_lists[bigram_type]
-                .as_mut().map(|v| v.push((bigram, count)));
+            if let Some(v) = scores.bigram_lists[bigram_type].as_mut() {
+                v.push((bigram, count))
+            }
 
             if bigram_type == BIGRAM_SAME_FINGER {
                 // Correct travel estimate: going to k1 not from home
@@ -961,8 +955,9 @@ impl KuehlmakModel {
             let trigram_type = self.trigram_types[k0][k1][k2] as usize;
 
             scores.trigram_counts[trigram_type] += count;
-            scores.trigram_lists[trigram_type]
-                .as_mut().map(|v| v.push((trigram, count)));
+            if let Some(v) = scores.trigram_lists[trigram_type].as_mut() {
+                v.push((trigram, count))
+            }
 
             if trigram_type == TRIGRAM_SAME_FINGER {
                 // Correct travel estimate: going to k2 not from home
@@ -1090,17 +1085,11 @@ impl KuehlmakModel {
         fast_trigrams.sort();
 
         let mut bigram_types = [[BIGRAM_NONE as u8; 30]; 30];
-        for i in 0..30 {
-            let h0 = key_props[i].hand;
-            let f0 = key_props[i].finger;
-            for j in 0..30 {
-                if i == j {
-                    continue;
-                }
-
-                let h1 = key_props[j].hand;
-                let f1 = key_props[j].finger;
-
+        for (i, &KeyProps {hand: h0, finger: f0, ..})
+                in key_props.iter().enumerate() {
+            for (j, &KeyProps {hand: h1, finger: f1, ..})
+                    in key_props.iter().enumerate()
+                                .filter(|&(j, _)| i != j) {
                 let b = (i as u8, j as u8);
 
                 if fast_bigrams.binary_search(&b).is_ok() {
@@ -1116,21 +1105,13 @@ impl KuehlmakModel {
         }
 
         let mut trigram_types = [[[TRIGRAM_NONE as u8; 30]; 30]; 30];
-        for i in 0..30 {
-            let h0 = key_props[i].hand;
-            let f0 = key_props[i].finger;
-
-            for j in 0..30 {
-                let h1 = key_props[j].hand;
-                let f1 = key_props[j].finger;
-
-                for k in 0..30 {
-                    if i == k {
-                        continue;
-                    }
-
-                    let h2 = key_props[k].hand;
-                    let f2 = key_props[k].finger;
+        for (i, &KeyProps {hand: h0, finger: f0, ..})
+                in key_props.iter().enumerate() {
+            for (j, &KeyProps {hand: h1, finger: f1, ..})
+                    in key_props.iter().enumerate() {
+                for (k, &KeyProps {hand: h2, finger: f2, ..})
+                        in key_props.iter().enumerate()
+                                    .filter(|&(k, _)| i != k) {
                     let t = (i as u8, j as u8, k as u8);
                     let b02 = (i as u8, k as u8);
 
@@ -1151,8 +1132,8 @@ impl KuehlmakModel {
         }
 
         let mut key_cost_ranking = [0; 30];
-        for i in 0..30 {
-            key_cost_ranking[i] = i;
+        for (i, ranking) in key_cost_ranking.iter_mut().enumerate() {
+            *ranking = i;
         }
         key_cost_ranking.sort_by_key(|&k| key_props[k].cost);
 
