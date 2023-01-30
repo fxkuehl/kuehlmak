@@ -227,6 +227,7 @@ fn mirror_key(k: u8) -> u8
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum KeyboardType {
     Ortho,
+    Hex,
     ANSI,
     ISO,
 }
@@ -529,6 +530,10 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
 
         let key_space = match self.model.params.board_type {
                 KeyboardType::Ortho => [["", "  |  ", ""]; 3],
+                KeyboardType::Hex =>
+                    [["", "  |  ", ""],
+                     ["  ", "|", "  "],
+                     ["", "  |  ", ""]],
                 KeyboardType::ANSI =>
                     [[" ", "", "    "],
                      ["  ", "", "   "],
@@ -816,12 +821,12 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
     }
     fn key_cost_ranking(&'a self) -> &'a [usize; 30] {&self.key_cost_ranking}
     fn is_symmetrical(&'a self) -> bool {
-        if let KeyboardType::Ortho = self.params.board_type {
-            self.params.constraints.ref_layout == None &&
-            self.params.constraints.zxcv == 0.0 &&
-            self.params.constraints.nonalpha == 0.0
-        } else {
-            false
+        match self.params.board_type {
+            KeyboardType::ISO => false,
+            KeyboardType::ANSI => false,
+            _ => self.params.constraints.ref_layout == None &&
+                 self.params.constraints.zxcv == 0.0 &&
+                 self.params.constraints.nonalpha == 0.0,
         }
     }
 }
@@ -1029,20 +1034,36 @@ impl KuehlmakModel {
         // Fast bigrams going in one direction, also used to construct fast
         // trigrams in the same direction below. One hand only, the other
         // hand is derived algorithmically.
-        let fast_bigrams_lr = vec![
+        let mut fast_bigrams_lr = vec![
             ( 1u8,  2u8), ( 1, 13),
             ( 2, 13),
             (10,  1), (10,  2), (10, 11), (10, 12), (10, 13), (10, 23),
             (11, 12), (11, 13), (11, 23),
             (12, 13), (12, 23),
             (20, 11), (20, 12), (20, 13), (20, 23)];
-        let fast_bigrams_rl = vec![
+        let mut fast_bigrams_rl = vec![
             (13u8,  1u8), (13,  2), (13, 10), (13, 11), (13, 12), (13, 20),
             (23, 10), (23, 11), (23, 12), (23, 20),
             ( 2,  1), ( 2, 10),
             (12, 11), (12, 10), (12, 20),
             ( 1, 10),
             (11, 10), (11, 20)];
+        // Adjust top row for KeyboardType::Hex
+        if let KeyboardType::Hex = params.board_type {
+            for b in fast_bigrams_lr.iter_mut()
+                                    .chain(fast_bigrams_rl.iter_mut()) {
+                match b.0 {
+                    0..=4 => b.0 += 1,
+                    6..=9 => b.0 -= 1,
+                    _ => (),
+                }
+                match b.1 {
+                    0..=4 => b.1 += 1,
+                    6..=9 => b.1 -= 1,
+                    _ => (),
+                }
+            }
+        }
         let mut fast_bigrams = Vec::new();
         fast_bigrams.extend(&fast_bigrams_lr);
         fast_bigrams.extend(&fast_bigrams_rl);
@@ -1057,9 +1078,16 @@ impl KuehlmakModel {
         //   preferred direction
         // - more distant fingers when neither are stretching in their
         //   preferred direction
-        let row_jump_bigrams_down = vec![
-            (0u8, 21u8), (0, 22), (1, 22), (2, 21), (3, 21), (3, 22), (4, 21), (4, 22),
-        ];
+        let row_jump_bigrams_down = match params.board_type {
+            KeyboardType::Hex => vec![
+                    (0u8, 21u8), (1, 21), (0, 22), (1, 22), (2, 22),
+                    (3, 21), (4, 21), (4, 22),
+                ],
+            _ => vec![
+                    (0u8, 21u8), (0, 22), (1, 22),
+                    (2, 21), (3, 21), (3, 22), (4, 21), (4, 22),
+                ],
+        };
         let mut row_jump_bigrams = Vec::new();
         row_jump_bigrams.extend(&row_jump_bigrams_down);
         row_jump_bigrams.extend(row_jump_bigrams_down.iter()
@@ -1152,19 +1180,33 @@ impl KuehlmakModel {
         let col = key % 10;
         assert!(row < 3);
 
-        let (hand, finger, home_col) = match col {
-            0     => (LEFT,  L_PINKY,  0.0),
-            1     => (LEFT,  L_RING,   1.0),
-            2     => (LEFT,  L_MIDDLE, 2.0),
-            3..=4 => (LEFT,  L_INDEX,  3.0),
-            5..=6 => (RIGHT, R_INDEX,  6.0),
-            7     => (RIGHT, R_MIDDLE, 7.0),
-            8     => (RIGHT, R_RING,   8.0),
-            9     => (RIGHT, R_PINKY,  9.0),
-            _     => panic!("col out of range"),
+        let (hand, finger, home_col) = match keyboard_type {
+            KeyboardType::Hex if row == 0 => match col {
+                0..=1 => (LEFT,  L_PINKY,  0.0),
+                2     => (LEFT,  L_RING,   1.0),
+                3     => (LEFT,  L_MIDDLE, 2.0),
+                4     => (LEFT,  L_INDEX,  3.0),
+                5     => (RIGHT, R_INDEX,  6.0),
+                6     => (RIGHT, R_MIDDLE, 7.0),
+                7     => (RIGHT, R_RING,   8.0),
+                8..=9 => (RIGHT, R_PINKY,  9.0),
+                _     => panic!("col out of range"),
+            },
+            _ => match col {
+                0     => (LEFT,  L_PINKY,  0.0),
+                1     => (LEFT,  L_RING,   1.0),
+                2     => (LEFT,  L_MIDDLE, 2.0),
+                3..=4 => (LEFT,  L_INDEX,  3.0),
+                5..=6 => (RIGHT, R_INDEX,  6.0),
+                7     => (RIGHT, R_MIDDLE, 7.0),
+                8     => (RIGHT, R_RING,   8.0),
+                9     => (RIGHT, R_PINKY,  9.0),
+                _     => panic!("col out of range"),
+            },
         };
         let (key_offsets, key_cost) = match keyboard_type {
             KeyboardType::Ortho => (&KEY_OFFSETS_ORTHO, &KEY_COST_ORTHO),
+            KeyboardType::Hex   => (&KEY_OFFSETS_HEX, &KEY_COST_HEX),
             KeyboardType::ANSI  => (&KEY_OFFSETS_ANSI, &KEY_COST_ANSI),
             KeyboardType::ISO   => (&KEY_OFFSETS_ISO, &KEY_COST_ISO),
         };
@@ -1180,18 +1222,15 @@ impl KuehlmakModel {
         d_rel[key] = 0.0;
 
         let mut calc_d_rel = |r: usize, c: usize| {
-            let dx = (c as f32 - home_col + key_offsets[r][hand]) * 1.5 - x;
-            let dy = r as f32 - 1.0 - y;
+            let dx = (c as f32 - col as f32 + key_offsets[r][hand] - key_offsets[row][hand]) * 1.5;
+            let dy = r as f32 - row as f32;
             d_rel[(r * 10 + c)] = (dx*dx + dy*dy).sqrt();
         };
         for r in 0..3 {
-            if r != row {
-                calc_d_rel(r, col);
-            }
-            if col == 3 || col == 5 {
-                calc_d_rel(r, col + 1);
-            } else if col == 4 || col == 6 {
-                calc_d_rel(r, col - 1);
+            for c in 0..10 {
+                if r != row || c != col {
+                    calc_d_rel(r, c);
+                }
             }
         }
 
@@ -1235,12 +1274,18 @@ const TRIGRAM_NUM_TYPES:    usize = 5;
 type KeyOffsets = [[f32; 2]; 3];
 
 const KEY_OFFSETS_ORTHO: KeyOffsets = [[ 0.0,   0.0 ], [0.0, 0.0], [ 0.0, 0.0]];
+const KEY_OFFSETS_HEX:   KeyOffsets = [[-1.0,   1.0 ], [0.0, 0.0], [ 0.0, 0.0]];
 const KEY_OFFSETS_ANSI:  KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [ 0.5, 0.5]];
 const KEY_OFFSETS_ISO:   KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [-0.5, 0.5]];
 const KEY_COST_ORTHO: [u8; 30] = [
     16,  6,  2,  6, 12, 12,  6,  2,  6, 16,
      5,  2,  1,  1,  4,  4,  1,  1,  2,  5,
      8, 10,  6,  2,  8,  8,  2,  6, 10,  8,
+];
+const KEY_COST_HEX: [u8; 30] = [
+    16, 12,  4,  2,  6,      6,  2,  4, 12, 16,
+       5,  2,  1,  1,  6,  6,  1,  1,  2,  5,
+     8, 10,  6,  2,  8,      8,  2,  6, 10,  8,
 ];
 const KEY_COST_ANSI: [u8; 30] = [
     16,  6,  2,  6, 10, 14,  6,  2,  6, 16,
