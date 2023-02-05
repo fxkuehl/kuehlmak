@@ -35,9 +35,9 @@ fn layout_from_file<P>(path: P) -> (Layout, usize)
         process::exit(1)
     });
     let popularity = if let Some(last_line) = string.lines().last() {
-        last_line.chars().filter(|&c| c == '#').count()
+        last_line.chars().filter(|&c| c == '#').count().max(1)
     } else {
-        0usize
+        1usize
     };
     (layout_from_str(&string).unwrap_or_else(|e| {
         eprintln!("Failed to parse layout: {}", e);
