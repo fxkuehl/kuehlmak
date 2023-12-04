@@ -227,7 +227,9 @@ fn mirror_key(k: u8) -> u8
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum KeyboardType {
     Ortho,
+    ColStag,
     Hex,
+    HexStag,
     ANSI,
     ISO,
 }
@@ -529,8 +531,9 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         let travel = self.finger_travel.iter().sum::<f64>() * norm;
 
         let key_space = match self.model.params.board_type {
-                KeyboardType::Ortho => [["", "  |  ", ""]; 3],
-                KeyboardType::Hex =>
+                KeyboardType::Ortho | KeyboardType::ColStag =>
+                    [["", "  |  ", ""]; 3],
+                KeyboardType::Hex | KeyboardType::HexStag  =>
                     [["", "  |  ", ""],
                      ["  ", "|", "  "],
                      ["", "  |  ", ""]],
@@ -1048,8 +1051,28 @@ impl KuehlmakModel {
             (12, 11), (12, 10), (12, 20),
             ( 1, 10),
             (11, 10), (11, 20)];
+        // Add more fast bigrams for column-staggered layouts
+        if let KeyboardType::ColStag | KeyboardType::HexStag = params.board_type {
+            fast_bigrams_lr.extend(&[(0u8, 1u8), (0, 2), (0, 3), (0, 13),
+                ( 1,  3), ( 1, 12),
+                ( 2,  3),
+                (10,  3),
+                (11,  3), (11, 22),
+                (12,  3),
+                (20,  3), (20, 21), (20, 22),
+                (21, 12), (21, 13), (21, 22), (21, 23),
+                (22, 13), (22, 23)]);
+            fast_bigrams_rl.extend(&[(3u8, 0u8), (3, 1), (3, 2), (3, 10), (3, 11), (3, 12), (3, 20),
+                ( 2,  0),
+                ( 1,  0),
+                (13,  0), (13, 21), (13, 22),
+                (12,  1), (12, 21),
+                (23, 21), (23, 22),
+                (22, 11), (22, 21), (22, 20),
+                (21, 20)]);
+        }
         // Adjust top row for KeyboardType::Hex
-        if let KeyboardType::Hex = params.board_type {
+        if let KeyboardType::Hex | KeyboardType::HexStag = params.board_type {
             for b in fast_bigrams_lr.iter_mut()
                                     .chain(fast_bigrams_rl.iter_mut()) {
                 match b.0 {
@@ -1079,7 +1102,7 @@ impl KuehlmakModel {
         // - more distant fingers when neither are stretching in their
         //   preferred direction
         let row_jump_bigrams_down = match params.board_type {
-            KeyboardType::Hex => vec![
+            KeyboardType::Hex | KeyboardType::HexStag => vec![
                     (0u8, 21u8), (1, 21), (0, 22), (1, 22), (2, 22),
                     (3, 21), (4, 21), (4, 22),
                 ],
@@ -1181,15 +1204,15 @@ impl KuehlmakModel {
         assert!(row < 3);
 
         let (hand, finger, home_col) = match keyboard_type {
-            KeyboardType::Hex if row == 0 => match col {
-                0..=1 => (LEFT,  L_PINKY,  0.0),
+            KeyboardType::Hex | KeyboardType::HexStag if row == 0 => match col {
+                0..=1 => (LEFT,  L_PINKY, -1.0),
                 2     => (LEFT,  L_RING,   1.0),
                 3     => (LEFT,  L_MIDDLE, 2.0),
                 4     => (LEFT,  L_INDEX,  3.0),
                 5     => (RIGHT, R_INDEX,  6.0),
                 6     => (RIGHT, R_MIDDLE, 7.0),
                 7     => (RIGHT, R_RING,   8.0),
-                8..=9 => (RIGHT, R_PINKY,  9.0),
+                8..=9 => (RIGHT, R_PINKY, 10.0),
                 _     => panic!("col out of range"),
             },
             _ => match col {
@@ -1205,10 +1228,12 @@ impl KuehlmakModel {
             },
         };
         let (key_offsets, key_cost) = match keyboard_type {
-            KeyboardType::Ortho => (&KEY_OFFSETS_ORTHO, &KEY_COST_ORTHO),
-            KeyboardType::Hex   => (&KEY_OFFSETS_HEX, &KEY_COST_HEX),
-            KeyboardType::ANSI  => (&KEY_OFFSETS_ANSI, &KEY_COST_ANSI),
-            KeyboardType::ISO   => (&KEY_OFFSETS_ISO, &KEY_COST_ISO),
+            KeyboardType::Ortho   => (&KEY_OFFSETS_ORTHO, &KEY_COST_ORTHO),
+            KeyboardType::ColStag => (&KEY_OFFSETS_ORTHO, &KEY_COST_COL_STAG),
+            KeyboardType::Hex     => (&KEY_OFFSETS_HEX, &KEY_COST_HEX),
+            KeyboardType::HexStag => (&KEY_OFFSETS_HEX, &KEY_COST_HEX_STAG),
+            KeyboardType::ANSI    => (&KEY_OFFSETS_ANSI, &KEY_COST_ANSI),
+            KeyboardType::ISO     => (&KEY_OFFSETS_ISO, &KEY_COST_ISO),
         };
 
         // Weigh horizontal offset more severely (factor 1.5).
@@ -1278,22 +1303,32 @@ const KEY_OFFSETS_HEX:   KeyOffsets = [[-1.0,   1.0 ], [0.0, 0.0], [ 0.0, 0.0]];
 const KEY_OFFSETS_ANSI:  KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [ 0.5, 0.5]];
 const KEY_OFFSETS_ISO:   KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [-0.5, 0.5]];
 const KEY_COST_ORTHO: [u8; 30] = [
-    16,  6,  2,  6, 12, 12,  6,  2,  6, 16,
-     5,  2,  1,  1,  4,  4,  1,  1,  2,  5,
-     8, 10,  6,  2,  8,  8,  2,  6, 10,  8,
-];
+    16,  6,  2,  6, 12, 12,  6,  2,  6, 16, // 84
+     5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
+     8, 10,  6,  2,  8,  8,  2,  6, 10,  8, // 68
+]; // 178
+const KEY_COST_COL_STAG: [u8; 30] = [
+    12,  8,  4,  4, 10, 10,  4,  4,  8, 12, // 76
+     5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
+    12,  8,  4,  4, 10, 10,  4,  4,  8, 12, // 76
+]; // 178
 const KEY_COST_HEX: [u8; 30] = [
-    16, 12,  4,  2,  6,      6,  2,  4, 12, 16,
-       5,  2,  1,  1,  6,  6,  1,  1,  2,  5,
-     8, 10,  6,  2,  8,      8,  2,  6, 10,  8,
-];
+    12, 16,  6,  2,  6,      6,  2,  6, 16, 12, // 84
+       5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
+     8, 10,  6,  2,  8,      8,  2,  6, 10,  8, // 68
+]; // 178
+const KEY_COST_HEX_STAG: [u8; 30] = [
+    12, 14,  8,  4,  4,      4,  4,  8, 14, 12, // 80
+       5,  2,  1,  1,  6,  6,  1,  1,  2,  5, // 30
+    10,  8,  4,  4,  8,      8,  4,  4,  8, 10, // 68
+]; // 178
 const KEY_COST_ANSI: [u8; 30] = [
-    16,  6,  2,  6, 10, 14,  6,  2,  6, 16,
-      5,  2,  1,  1,  4,  4,  1,  1,  2,  5,
-        8, 10,  6,  2, 12,  2,  3,  6, 10,  8,
-];
+    16,  6,  2,  6, 10, 14,  6,  2,  6, 16, // 84
+      5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
+        8, 10,  6,  2,  8,  6,  4,  6, 10,  8, // 68
+]; // 178
 const KEY_COST_ISO: [u8; 30] = [
-     16,  6,  2,  6, 10, 14,  6,  2,  6, 16,
-       5,  2,  1,  1,  4,  4,  1,  1,  2,  5,
-     8, 10,  6,  4,  6,      6,  4,  6, 10,  8,
-];
+     16,  6,  2,  6, 10, 14,  6,  2,  6, 16, // 84
+       5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
+     8, 10,  6,  4,  6,      6,  4,  6, 10,  8, // 68
+]; // 178
