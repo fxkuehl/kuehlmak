@@ -1204,14 +1204,14 @@ impl KuehlmakModel {
 
         let (hand, finger, home_col) = match keyboard_type {
             KeyboardType::Hex | KeyboardType::HexStag if row == 0 => match col {
-                0..=1 => (LEFT,  L_PINKY, -1.0),
+                0..=1 => (LEFT,  L_PINKY,  0.0),
                 2     => (LEFT,  L_RING,   1.0),
                 3     => (LEFT,  L_MIDDLE, 2.0),
                 4     => (LEFT,  L_INDEX,  3.0),
                 5     => (RIGHT, R_INDEX,  6.0),
                 6     => (RIGHT, R_MIDDLE, 7.0),
                 7     => (RIGHT, R_RING,   8.0),
-                8..=9 => (RIGHT, R_PINKY, 10.0),
+                8..=9 => (RIGHT, R_PINKY,  9.0),
                 _     => panic!("col out of range"),
             },
             _ => match col {
@@ -1312,12 +1312,12 @@ const KEY_COST_COL_STAG: [u8; 30] = [
     12,  8,  4,  4, 10, 10,  4,  4,  8, 12, // 76
 ]; // 178
 const KEY_COST_HEX: [u8; 30] = [
-    12, 16,  6,  2,  6,      6,  2,  6, 16, 12, // 84
+    16, 12,  6,  2,  6,      6,  2,  6, 12, 16, // 84
        5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
      8, 10,  6,  2,  8,      8,  2,  6, 10,  8, // 68
 ]; // 178
 const KEY_COST_HEX_STAG: [u8; 30] = [
-    12, 14,  8,  4,  4,      4,  4,  8, 14, 12, // 80
+    14, 12,  8,  4,  4,      4,  4,  8, 12, 14, // 80
        5,  2,  1,  1,  6,  6,  1,  1,  2,  5, // 30
     10,  8,  4,  4,  8,      8,  4,  4,  8, 10, // 68
 ]; // 178
