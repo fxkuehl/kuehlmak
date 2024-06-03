@@ -1163,10 +1163,9 @@ impl KuehlmakModel {
                 for (k, &KeyProps {hand: h2, finger: f2, ..})
                         in key_props.iter().enumerate()
                                     .filter(|&(k, _)| i != k) {
-                    let t = (i as u8, j as u8, k as u8);
                     let b02 = (i as u8, k as u8);
 
-                    if fast_trigrams.binary_search(&t).is_ok() {
+                    if h0 != h1 && h0 == h2 && fast_bigrams.binary_search(&b02).is_ok() {
                         trigram_types[i][j][k] = TRIGRAM_FAST as u8;
                     } else if f0 == f2 {
                         trigram_types[i][j][k] = TRIGRAM_SAME_FINGER as u8;
