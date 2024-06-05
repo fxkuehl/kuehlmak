@@ -971,15 +971,11 @@ impl KuehlmakModel {
 
             if trigram_type == TRIGRAM_D_SFB {
                 // Correct travel estimate: going to k2 not from home
-                // position but from k0 instead. But only if k1 uses a
-                // different finger. Otherwise the same-finger bigrams
-                // will account for the travel distance.
+                // position but from k0 instead.
                 let props = &self.key_props[k2];
 
-                if props.finger != self.key_props[k1].finger {
-                    scores.finger_travel[props.finger as usize] +=
-                        (props.d_rel[k0]*2.0 - props.d_abs) as f64 * count as f64;
-                }
+                scores.finger_travel[props.finger as usize] +=
+                    (props.d_rel[k0]*2.0 - props.d_abs) as f64 * count as f64;
             }
         }
         for count in scores.trigram_counts.iter_mut() {
@@ -1130,12 +1126,12 @@ impl KuehlmakModel {
                                 .filter(|&(j, _)| i != j) {
                 let b = (i as u8, j as u8);
 
-                if rolls.binary_search(&b).is_ok() {
+                if f0 == f1 {
+                    bigram_types[i][j] = BIGRAM_SFB as u8;
+                } else if rolls.binary_search(&b).is_ok() {
                     bigram_types[i][j] = BIGRAM_ROLL as u8;
                 } else if scissors.binary_search(&b).is_ok() {
                     bigram_types[i][j] = BIGRAM_SCISSOR as u8;
-                } else if f0 == f1 {
-                    bigram_types[i][j] = BIGRAM_SFB as u8;
                 } else if h0 == h1 {
                     bigram_types[i][j] = BIGRAM_TIRING as u8;
                 }
@@ -1152,16 +1148,18 @@ impl KuehlmakModel {
                                     .filter(|&(k, _)| i != k) {
                     let b02 = (i as u8, k as u8);
 
-                    if h0 != h1 && h0 == h2 && rolls.binary_search(&b02).is_ok() {
-                        trigram_types[i][j][k] = TRIGRAM_D_ROLL as u8;
-                    } else if f0 == f2 {
+                    if f0 == f2 && f0 != f1 {
                         trigram_types[i][j][k] = TRIGRAM_D_SFB as u8;
                     } else if h0 == h1 && h1 == h2 && // All in the same hand
                             f0 != f1 && f1 != f2 &&   // No finger repeat
                             (f2 > f1) ^ (f1 > f0) &&  // Reversing direction
                             f1 != 1 && f1 != 6 {      // Ring finger not second
                         trigram_types[i][j][k] = TRIGRAM_REDIRECT as u8;
-                    } else if scissors.binary_search(&b02).is_ok() {
+                    } else if h0 != h1 && h0 == h2 &&
+                            rolls.binary_search(&b02).is_ok() {
+                        trigram_types[i][j][k] = TRIGRAM_D_ROLL as u8;
+                    } else if f0 != f1 && f1 != f2 &&
+                            scissors.binary_search(&b02).is_ok() {
                         trigram_types[i][j][k] = TRIGRAM_D_SCISSOR as u8;
                     }
                 }
