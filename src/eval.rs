@@ -6,6 +6,7 @@ use std::fmt;
 use std::fmt::Write as FmtWrite;
 use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
+use std::ops::Mul;
 use serde::{Serialize, Deserialize};
 
 // Layout: 2 chars per key (normal/shifted), 10 keys per row, 3 rows
@@ -330,7 +331,7 @@ impl Default for KuehlmakWeights {
     fn default() -> Self {
         KuehlmakWeights {
             effort:     0.1,
-            travel:     0.5,
+            travel:     1.0,
             imbalance:  0.05,
             rolls:      0.0, // Only same-hand bigram type not penalized
             sfbs:       5.0,
@@ -988,24 +989,30 @@ impl KuehlmakModel {
     }
 
     fn score_travel(&self, scores: &mut KuehlmakScores) {
-        // Weigh travel per finger by the average key cost of that finger.
-        // This penalizes travel more heavily on keys that are expected
-        // to be used less (due to higher average cost).
+        // Weigh travel per finger by dividing it by finger strength (average
+        // of the reciprocal of the per key costs). This penalizes travel
+        // more heavily on weak fingers.
         //
         // Square the per-finger travel so the score is dominated by the
         // fingers that travel most. The square root of the sum brings
         // the value range back down and makes the score more sensitive.
-        let mut finger_weight = [(0.0, 0); 8];
+        // (steeper slope for small values).
+        //
+        // The score is normalized so that on a perfectly balanced layout
+        // it is close to the average per-key travel distance.
+        let mut finger_strength = [(0.0, 0); 8];
         for props in self.key_props.iter() {
             let f = props.finger as usize;
-            finger_weight[f].0 += props.cost as f64;
-            finger_weight[f].1 += 1;
+            finger_strength[f].0 += (props.cost as f64).recip();
+            finger_strength[f].1 += 1;
         }
-        scores.travel = scores.finger_travel.iter().zip(finger_weight)
-                              .map(|(&travel, (weight, n))| {
-                                  let t = travel * weight / (n as f64);
+
+        let norm = finger_strength.iter().map(|&(s, n)| (s / n as f64).powi(2)).sum::<f64>();
+        scores.travel = scores.finger_travel.iter().zip(finger_strength)
+                              .map(|(&travel, (s, n))| {
+                                  let t = travel * n as f64 / s;
                                   t * t
-                              }).sum::<f64>().sqrt() / scores.strokes as f64;
+                              }).sum::<f64>().mul(norm).sqrt() / scores.strokes as f64;
     }
 
     fn score_imbalance(&self, scores: &mut KuehlmakScores) {
