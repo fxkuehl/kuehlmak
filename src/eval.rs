@@ -239,6 +239,7 @@ pub enum KeyboardType {
 struct KeyProps {
     hand: u8,
     finger: u8,
+    is_stretch: bool,
     d_abs: f32,
     d_rel: [f32; 30],
     cost: u8,
@@ -316,14 +317,20 @@ pub struct KuehlmakWeights {
     travel: f64,
     imbalance: f64,
     rolls: f64,
+    strains: f64,
+    #[serde(rename = "LSBs")]
+    lsbs: f64,
+    scissors: f64,
     #[serde(rename = "SFBs")]
     sfbs: f64,
-    scissors: f64,
-    tiring: f64,
     d_rolls: f64,
+    d_strains: f64,
+    #[serde(rename = "dLSBs")]
+    d_lsbs: f64,
+    d_scissors: f64,
     #[serde(rename = "dSFBs")]
     d_sfbs: f64,
-    d_scissors: f64,
+    samehands: f64,
     redirects: f64,
 }
 
@@ -334,12 +341,16 @@ impl Default for KuehlmakWeights {
             travel:     1.0,
             imbalance:  0.05,
             rolls:      0.0, // Only same-hand bigram type not penalized
-            sfbs:       5.0,
+            strains:    1.0,
+            lsbs:       1.0,
             scissors:   5.0,
-            tiring:     1.0,
-            d_rolls:   -0.3, // negative to maximize fast trigrams
-            d_sfbs:     5.0,
+            sfbs:       5.0,
+            d_rolls:   -1.0, // negative to maximize fast trigrams
+            d_strains:  1.0,
+            d_lsbs:     1.0,
             d_scissors: 5.0,
+            d_sfbs:     5.0,
+            samehands: -1.0,
             redirects:  5.0,
         }
     }
@@ -497,7 +508,7 @@ pub struct KuehlmakScores<'a> {
     bigram_counts: [u64; BIGRAM_NUM_TYPES],
     trigram_counts: [u64; TRIGRAM_NUM_TYPES],
     bigram_lists: [Option<Vec<(Bigram, u64)>>; BIGRAM_NUM_TYPES],
-    trigram_lists: [Option<Vec<(Trigram, u64)>>; BIGRAM_NUM_TYPES],
+    trigram_lists: [Option<Vec<(Trigram, u64)>>; TRIGRAM_NUM_TYPES],
     finger_travel: [f64; 8],
     effort: f64,
     travel: f64,
@@ -600,31 +611,35 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                  ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                  ft_iter.next().unwrap(), ft_iter.next().unwrap())?;
 
-        write!(w, "     SFBs Scissors  Rolls  Tiring |")?;
+        write!(w, "     Roll Strain LSB  Scissor SFB |")?;
         write_key_row(w, key_space[0])?;
 
-        write!(w, "2: {:6.2}  {:6.2}  {:6.2}  {:6.2} |",
-               self.bigram_counts[BIGRAM_SFB] as f64 * norm,
-               self.bigram_counts[BIGRAM_SCISSOR] as f64 * norm,
+        write!(w, " AB {:5.1} {:5.1} {:5.1} {:5.1} {:5.1} |",
                self.bigram_counts[BIGRAM_ROLL] as f64 * norm,
-               self.bigram_counts[BIGRAM_TIRING] as f64 * norm)?;
+               self.bigram_counts[BIGRAM_STRAIN] as f64 * norm,
+               self.bigram_counts[BIGRAM_LSB] as f64 * norm,
+               self.bigram_counts[BIGRAM_SCISSOR] as f64 * norm,
+               self.bigram_counts[BIGRAM_SFB] as f64 * norm)?;
         write_heat_row(w, key_space[0])?;
 
-        write!(w, "3: {:6.2}  {:6.2}  {:6.2}  {:6.2} |",
-               self.trigram_counts[TRIGRAM_D_SFB] as f64 * norm,
-               self.trigram_counts[TRIGRAM_D_SCISSOR] as f64 * norm,
+        write!(w, "A_B {:5.1} {:5.1} {:5.1} {:5.1} {:5.1} |",
                self.trigram_counts[TRIGRAM_D_ROLL] as f64 * norm,
-               self.trigram_counts[TRIGRAM_REDIRECT] as f64 * norm)?;
+               self.trigram_counts[TRIGRAM_D_STRAIN] as f64 * norm,
+               self.trigram_counts[TRIGRAM_D_LSB] as f64 * norm,
+               self.trigram_counts[TRIGRAM_D_SCISSOR] as f64 * norm,
+               self.trigram_counts[TRIGRAM_D_SFB] as f64 * norm)?;
         write_key_row(w, key_space[1])?;
 
-        write!(w, "                        Redirects |")?;
+        write!(w, "ABC {:5.1} {:5.1} <-Redirect        |",
+               self.trigram_counts[TRIGRAM_SAMEHAND] as f64 * norm,
+               self.trigram_counts[TRIGRAM_REDIRECT] as f64 * norm)?;
         write_heat_row(w, key_space[1])?;
 
-        write!(w, "Total+Constraints {:7.4}{:+8.4} |",
+        write!(w, "Score+Constraints {:7.4}{:+8.4} |",
                self.total, self.constraints)?;
         write_key_row(w, key_space[2])?;
 
-        write!(w, "Hand runs {:4.2}:{:4.2}      ={:7.4} |",
+        write!(w, "Pinball {:4.2}:{:4.2}  Total ={:7.4} |",
                self.hand_runs[0], self.hand_runs[1],
                self.total + self.constraints)?;
         write_heat_row(w, key_space[2])?;
@@ -652,7 +667,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let bigram_names = ["", "Rolls", "SFBs", "Scissors", "Tiring"];
+        let bigram_names = ["", "Rolls", "Strains", "LSBs", "Scissors", "SFBs"];
         for (vec, name) in self.bigram_lists.iter()
                                .zip(bigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -684,7 +699,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let trigram_names = ["", "dRolls", "dSFBs", "dScissors", "Redirects"];
+        let trigram_names = ["", "dRolls", "dStrains", "dLSBs", "dScissors", "dSFBs", "Samehands", "Redirects"];
         for (vec, name) in self.trigram_lists.iter()
                                .zip(trigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -731,12 +746,16 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             self.travel,
             self.imbalance,
             self.bigram_counts[BIGRAM_ROLL] as f64,
-            self.bigram_counts[BIGRAM_SFB] as f64,
+            self.bigram_counts[BIGRAM_STRAIN] as f64,
+            self.bigram_counts[BIGRAM_LSB] as f64,
             self.bigram_counts[BIGRAM_SCISSOR] as f64,
-            self.bigram_counts[BIGRAM_TIRING] as f64,
+            self.bigram_counts[BIGRAM_SFB] as f64,
             self.trigram_counts[TRIGRAM_D_ROLL] as f64,
-            self.trigram_counts[TRIGRAM_D_SFB] as f64,
+            self.trigram_counts[TRIGRAM_D_STRAIN] as f64,
+            self.trigram_counts[TRIGRAM_D_LSB] as f64,
             self.trigram_counts[TRIGRAM_D_SCISSOR] as f64,
+            self.trigram_counts[TRIGRAM_D_SFB] as f64,
+            self.trigram_counts[TRIGRAM_SAMEHAND] as f64,
             self.trigram_counts[TRIGRAM_REDIRECT] as f64,
         ]
     }
@@ -748,13 +767,17 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             ("travel".to_string(), 3),
             ("imbalance".to_string(), 4),
             ("rolls".to_string(), 5),
-            ("SFBs".to_string(), 6),
-            ("scissors".to_string(), 7),
-            ("tiring".to_string(), 8),
-            ("d_rolls".to_string(), 9),
-            ("dSFBs".to_string(), 10),
-            ("d_scissors".to_string(), 11),
-            ("redirects".to_string(), 12),
+            ("strains".to_string(), 6),
+            ("LSBs".to_string(), 7),
+            ("scissors".to_string(), 8),
+            ("SFBs".to_string(), 9),
+            ("d_rolls".to_string(), 10),
+            ("d_strains".to_string(), 11),
+            ("dLSBs".to_string(), 12),
+            ("d_scissors".to_string(), 13),
+            ("dSFBs".to_string(), 14),
+            ("samehands".to_string(), 15),
+            ("redirects".to_string(), 16),
         ])
     }
 }
@@ -775,8 +798,8 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             heatmap: [0; 30],
             bigram_counts: [0; BIGRAM_NUM_TYPES],
             trigram_counts: [0; TRIGRAM_NUM_TYPES],
-            bigram_lists: [None, bl(), bl(), bl(), bl()],
-            trigram_lists: [None, tl(), tl(), tl(), tl()],
+            bigram_lists: [None, bl(), bl(), bl(), bl(), bl()],
+            trigram_lists: [None, tl(), tl(), tl(), tl(), tl(), tl(), tl()],
             finger_travel: [0.0; 8],
             effort: 0.0,
             travel: 0.0,
@@ -807,20 +830,28 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             (self.params.weights.imbalance, scores.imbalance),
             (self.params.weights.rolls / strokes,
              scores.bigram_counts[BIGRAM_ROLL] as f64),
-            (self.params.weights.sfbs / strokes,
-             scores.bigram_counts[BIGRAM_SFB] as f64),
+            (self.params.weights.strains / strokes,
+             scores.bigram_counts[BIGRAM_STRAIN] as f64),
+            (self.params.weights.lsbs / strokes,
+             scores.bigram_counts[BIGRAM_LSB] as f64),
             (self.params.weights.scissors / strokes,
              scores.bigram_counts[BIGRAM_SCISSOR] as f64),
-            (self.params.weights.tiring / strokes,
-             scores.bigram_counts[BIGRAM_TIRING] as f64),
+            (self.params.weights.sfbs / strokes,
+             scores.bigram_counts[BIGRAM_SFB] as f64),
             (self.params.weights.d_rolls / strokes,
              scores.trigram_counts[TRIGRAM_D_ROLL] as f64),
-            (self.params.weights.d_sfbs / strokes,
-             scores.trigram_counts[TRIGRAM_D_SFB] as f64),
+            (self.params.weights.d_strains / strokes,
+             scores.trigram_counts[TRIGRAM_D_STRAIN] as f64),
+            (self.params.weights.d_lsbs / strokes,
+             scores.trigram_counts[TRIGRAM_D_LSB] as f64),
             (self.params.weights.d_scissors / strokes,
              scores.trigram_counts[TRIGRAM_D_SCISSOR] as f64),
+            (self.params.weights.d_sfbs / strokes,
+             scores.trigram_counts[TRIGRAM_D_SFB] as f64),
+            (self.params.weights.samehands / strokes,
+             scores.trigram_counts[TRIGRAM_SAMEHAND] as f64),
             (self.params.weights.redirects / strokes,
-             scores.trigram_counts[TRIGRAM_REDIRECT] as f64)
+             scores.trigram_counts[TRIGRAM_REDIRECT] as f64),
         ].into_iter().map(|(score, weight)| score * weight).sum::<f64>();
 
         scores
@@ -1039,108 +1070,61 @@ impl KuehlmakModel {
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
         ];
 
-        // Rolling bigrams going in one direction. One hand only, the other
-        // hand is derived algorithmically.
-        let mut rolls_lr = vec![
-            ( 1u8,  2u8), ( 1, 13),
-            ( 2, 13),
-            (10,  1), (10,  2), (10, 11), (10, 12), (10, 13), (10, 23),
-            (11, 12), (11, 13), (11, 23),
-            (12, 13), (12, 23),
-            (20, 11), (20, 12), (20, 13), (20, 23)];
-        let mut rolls_rl = vec![
-            (13u8,  1u8), (13,  2), (13, 10), (13, 11), (13, 12), (13, 20),
-            (23, 10), (23, 11), (23, 12), (23, 20),
-            ( 2,  1), ( 2, 10),
-            (12, 11), (12, 10), (12, 20),
-            ( 1, 10),
-            (11, 10), (11, 20)];
-        // Add more roll bigrams for column-staggered layouts
-        if let KeyboardType::ColStag | KeyboardType::HexStag = params.board_type {
-            rolls_lr.extend(&[(0u8, 1u8), (0, 2), (0, 3), (0, 13),
-                ( 1,  3), ( 1, 12),
-                ( 2,  3),
-                (10,  3),
-                (11,  3), (11, 22),
-                (12,  3),
-                (20,  3), (20, 21), (20, 22),
-                (21, 12), (21, 13), (21, 22), (21, 23),
-                (22, 13), (22, 23)]);
-            rolls_rl.extend(&[(3u8, 0u8), (3, 1), (3, 2), (3, 10), (3, 11), (3, 12), (3, 20),
-                ( 2,  0),
-                ( 1,  0),
-                (13,  0), (13, 21), (13, 22),
-                (12,  1), (12, 21),
-                (23, 21), (23, 22),
-                (22, 11), (22, 21), (22, 20),
-                (21, 20)]);
-        }
+        // Scissors are symmetrical in two ways:
+        // 1. If the bigram AB is a scissor, so is BA
+        // 2. Left and right hand are symmetrical (approx. with row-stagger)
+        // Enumerate scissors on left hand going left->right. Compute the rest
+        // from the symmetries.
+        let mut scissors_lr = vec![
+            (0u8, 11u8), (0, 21), (0, 12), (0, 22), (0, 23), (10, 21), (20, 1), (20, 2), (20, 3),
+            (1, 22), (1, 23), (21, 2), (21, 3), (2, 23), (22, 3)];
         // Adjust top row for KeyboardType::Hex
         if let KeyboardType::Hex | KeyboardType::HexStag = params.board_type {
-            for b in rolls_lr.iter_mut()
-                                    .chain(rolls_rl.iter_mut()) {
+            for b in scissors_lr.iter_mut() {
                 match b.0 {
-                    0..=4 => b.0 += 1,
-                    6..=9 => b.0 -= 1,
+                    0..=3 => b.0 += 1,
                     _ => (),
                 }
                 match b.1 {
-                    0..=4 => b.1 += 1,
-                    6..=9 => b.1 -= 1,
+                    0..=3 => b.1 += 1,
                     _ => (),
                 }
             }
         }
-        let mut rolls = Vec::new();
-        rolls.extend(&rolls_lr);
-        rolls.extend(&rolls_rl);
-        rolls.extend(rolls_lr.iter()
-                           .map( |b| (mirror_key(b.0), mirror_key(b.1)) ));
-        rolls.extend(rolls_rl.iter()
-                           .map( |b| (mirror_key(b.0), mirror_key(b.1)) ));
-        rolls.sort();
-
-        // Scissors:
-        // - adjacent fingers when they're not both stretching in their
-        //   preferred direction
-        // - more distant fingers when neither are stretching in their
-        //   preferred direction
-        let scissors_down = match params.board_type {
-            KeyboardType::Hex | KeyboardType::HexStag => vec![
-                    (0u8, 21u8), (1, 21), (0, 22), (1, 22), (2, 22),
-                    (3, 21), (4, 21), (4, 22),
-                ],
-            _ => vec![
-                    (0u8, 21u8), (0, 22), (1, 22),
-                    (2, 21), (3, 21), (3, 22), (4, 21), (4, 22),
-                ],
-        };
         let mut scissors = Vec::new();
-        scissors.extend(&scissors_down);
-        scissors.extend(scissors_down.iter()
+        scissors.extend(&scissors_lr);
+        scissors.extend(scissors_lr.iter()
                                 .map(|b| (b.1, b.0)));
-        scissors.extend(scissors_down.iter()
+        scissors.extend(scissors_lr.iter()
                                 .map(|b| (mirror_key(b.0), mirror_key(b.1))));
-        scissors.extend(scissors_down.iter()
+        scissors.extend(scissors_lr.iter()
                                 .map(|b| (mirror_key(b.1), mirror_key(b.0))));
         scissors.sort();
 
         let mut bigram_types = [[BIGRAM_NONE as u8; 30]; 30];
-        for (i, &KeyProps {hand: h0, finger: f0, ..})
+        for (i, &KeyProps {hand: h0, finger: f0, is_stretch: s0, ..})
                 in key_props.iter().enumerate() {
-            for (j, &KeyProps {hand: h1, finger: f1, ..})
+            for (j, &KeyProps {hand: h1, finger: f1, is_stretch: s1, ..})
                     in key_props.iter().enumerate()
                                 .filter(|&(j, _)| i != j) {
+                if h0 != h1 {
+                    continue;
+                }
+
                 let b = (i as u8, j as u8);
 
                 if f0 == f1 {
                     bigram_types[i][j] = BIGRAM_SFB as u8;
-                } else if rolls.binary_search(&b).is_ok() {
-                    bigram_types[i][j] = BIGRAM_ROLL as u8;
+                } else if s0 || s1 {
+                    bigram_types[i][j] = BIGRAM_LSB as u8;
                 } else if scissors.binary_search(&b).is_ok() {
                     bigram_types[i][j] = BIGRAM_SCISSOR as u8;
-                } else if h0 == h1 {
-                    bigram_types[i][j] = BIGRAM_TIRING as u8;
+                } else if f0 == 1 || f0 == 6 || // Rolling away from ring finger or
+                          f0 == 3 || f0 == 4 || // Involving index finger
+                          f1 == 3 || f1 == 4 {
+                    bigram_types[i][j] = BIGRAM_ROLL as u8;
+                } else {
+                    bigram_types[i][j] = BIGRAM_STRAIN as u8;
                 }
             }
         }
@@ -1153,21 +1137,27 @@ impl KuehlmakModel {
                 for (k, &KeyProps {hand: h2, finger: f2, ..})
                         in key_props.iter().enumerate()
                                     .filter(|&(k, _)| i != k) {
-                    let b02 = (i as u8, k as u8);
-
                     if f0 == f2 && f0 != f1 {
                         trigram_types[i][j][k] = TRIGRAM_D_SFB as u8;
-                    } else if h0 == h1 && h1 == h2 && // All in the same hand
-                            f0 != f1 && f1 != f2 &&   // No finger repeat
-                            (f2 > f1) ^ (f1 > f0) &&  // Reversing direction
-                            f1 != 1 && f1 != 6 {      // Ring finger not second
-                        trigram_types[i][j][k] = TRIGRAM_REDIRECT as u8;
-                    } else if h0 != h1 && h0 == h2 &&
-                            rolls.binary_search(&b02).is_ok() {
-                        trigram_types[i][j][k] = TRIGRAM_D_ROLL as u8;
+                    } else if h0 != h1 && h0 == h2 {
+                        if bigram_types[i][k] == BIGRAM_LSB as u8 {
+                            trigram_types[i][j][k] = TRIGRAM_D_LSB as u8;
+                        } else if bigram_types[i][k] == BIGRAM_ROLL as u8 {
+                            trigram_types[i][j][k] = TRIGRAM_D_ROLL as u8;
+                        } else if bigram_types[i][k] == BIGRAM_STRAIN as u8 {
+                            trigram_types[i][j][k] = TRIGRAM_D_STRAIN as u8;
+                        }
                     } else if f0 != f1 && f1 != f2 &&
-                            scissors.binary_search(&b02).is_ok() {
+                            bigram_types[i][k] == BIGRAM_SCISSOR as u8 {
                         trigram_types[i][j][k] = TRIGRAM_D_SCISSOR as u8;
+                    } else if h0 == h1 && h1 == h2 && // All in the same hand
+                            f0 != f1 && f1 != f2 {    // No finger repeat
+                        if (f2 > f1) ^ (f1 > f0) {    // Reversing direction
+                            trigram_types[i][j][k] = TRIGRAM_REDIRECT as u8;
+                        } else if bigram_types[i][j] == BIGRAM_ROLL as u8 &&
+                                bigram_types[j][k] == BIGRAM_ROLL as u8 {
+                            trigram_types[i][j][k] = TRIGRAM_SAMEHAND as u8;
+                        }
                     }
                 }
             }
@@ -1194,27 +1184,31 @@ impl KuehlmakModel {
         let col = key % 10;
         assert!(row < 3);
 
-        let (hand, finger, home_col) = match keyboard_type {
+        let (hand, finger, home_col, is_stretch) = match keyboard_type {
             KeyboardType::Hex | KeyboardType::HexStag if row == 0 => match col {
-                0..=1 => (LEFT,  L_PINKY,  0.0),
-                2     => (LEFT,  L_RING,   1.0),
-                3     => (LEFT,  L_MIDDLE, 2.0),
-                4     => (LEFT,  L_INDEX,  3.0),
-                5     => (RIGHT, R_INDEX,  6.0),
-                6     => (RIGHT, R_MIDDLE, 7.0),
-                7     => (RIGHT, R_RING,   8.0),
-                8..=9 => (RIGHT, R_PINKY,  9.0),
+                0     => (LEFT,  L_PINKY,  0.0, true),
+                1     => (LEFT,  L_PINKY,  0.0, false),
+                2     => (LEFT,  L_RING,   1.0, false),
+                3     => (LEFT,  L_MIDDLE, 2.0, false),
+                4     => (LEFT,  L_INDEX,  3.0, false),
+                5     => (RIGHT, R_INDEX,  6.0, false),
+                6     => (RIGHT, R_MIDDLE, 7.0, false),
+                7     => (RIGHT, R_RING,   8.0, false),
+                8     => (RIGHT, R_PINKY,  9.0, false),
+                9     => (RIGHT, R_PINKY,  9.0, true),
                 _     => panic!("col out of range"),
             },
             _ => match col {
-                0     => (LEFT,  L_PINKY,  0.0),
-                1     => (LEFT,  L_RING,   1.0),
-                2     => (LEFT,  L_MIDDLE, 2.0),
-                3..=4 => (LEFT,  L_INDEX,  3.0),
-                5..=6 => (RIGHT, R_INDEX,  6.0),
-                7     => (RIGHT, R_MIDDLE, 7.0),
-                8     => (RIGHT, R_RING,   8.0),
-                9     => (RIGHT, R_PINKY,  9.0),
+                0     => (LEFT,  L_PINKY,  0.0, false),
+                1     => (LEFT,  L_RING,   1.0, false),
+                2     => (LEFT,  L_MIDDLE, 2.0, false),
+                3     => (LEFT,  L_INDEX,  3.0, false),
+                4     => (LEFT,  L_INDEX,  3.0, true),
+                5     => (RIGHT, R_INDEX,  6.0, true),
+                6     => (RIGHT, R_INDEX,  6.0, false),
+                7     => (RIGHT, R_MIDDLE, 7.0, false),
+                8     => (RIGHT, R_RING,   8.0, false),
+                9     => (RIGHT, R_PINKY,  9.0, false),
                 _     => panic!("col out of range"),
             },
         };
@@ -1253,6 +1247,7 @@ impl KuehlmakModel {
         KeyProps {
             hand: hand as u8,
             finger: finger as u8,
+            is_stretch,
             d_abs, d_rel,
             cost: key_cost[key],
         }
@@ -1274,17 +1269,21 @@ const R_PINKY:  usize = 7;
 
 const BIGRAM_NONE:       usize = 0;
 const BIGRAM_ROLL:       usize = 1;
-const BIGRAM_SFB:        usize = 2;
-const BIGRAM_SCISSOR:    usize = 3;
-const BIGRAM_TIRING:     usize = 4;
-const BIGRAM_NUM_TYPES:  usize = 5;
+const BIGRAM_STRAIN:     usize = 2;
+const BIGRAM_LSB:        usize = 3;
+const BIGRAM_SCISSOR:    usize = 4;
+const BIGRAM_SFB:        usize = 5;
+const BIGRAM_NUM_TYPES:  usize = 6;
 
 const TRIGRAM_NONE:      usize = 0;
 const TRIGRAM_D_ROLL:    usize = 1;
-const TRIGRAM_D_SFB:     usize = 2;
-const TRIGRAM_D_SCISSOR: usize = 3;
-const TRIGRAM_REDIRECT:  usize = 4;
-const TRIGRAM_NUM_TYPES: usize = 5;
+const TRIGRAM_D_STRAIN:  usize = 2;
+const TRIGRAM_D_LSB:     usize = 3;
+const TRIGRAM_D_SCISSOR: usize = 4;
+const TRIGRAM_D_SFB:     usize = 5;
+const TRIGRAM_SAMEHAND:  usize = 6;
+const TRIGRAM_REDIRECT:  usize = 7;
+const TRIGRAM_NUM_TYPES: usize = 8;
 
 
 type KeyOffsets = [[f32; 2]; 3];
