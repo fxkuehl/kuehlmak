@@ -1222,7 +1222,7 @@ impl KuehlmakModel {
         };
 
         // Weigh horizontal offset more severely (factor 1.5).
-        let x = (col as f32 - home_col + key_offsets[row][hand]) * 1.5;
+        let x = col as f32 - home_col + key_offsets[row][hand];
         let y = row as f32 - 1.0;
         let d_abs = (x*x + y*y).sqrt();
 
@@ -1232,7 +1232,7 @@ impl KuehlmakModel {
         d_rel[key] = 0.0;
 
         let mut calc_d_rel = |r: usize, c: usize| {
-            let dx = (c as f32 - col as f32 + key_offsets[r][hand] - key_offsets[row][hand]) * 1.5;
+            let dx = c as f32 - col as f32 + key_offsets[r][hand] - key_offsets[row][hand];
             let dy = r as f32 - row as f32;
             d_rel[(r * 10 + c)] = (dx*dx + dy*dy).sqrt();
         };
