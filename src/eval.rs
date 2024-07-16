@@ -669,7 +669,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let bigram_names = ["", "Rolls", "Strains", "LSB1s", "LSB2s", "LSB3s", "Scissors", "SFBs"];
+        let bigram_names = ["", "Rolls", "Strains", "LSB1s", "LSB2s", "LSB3s", "Scissors", "SFBs", "SameKey"];
         for (vec, name) in self.bigram_lists.iter()
                                .zip(bigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -800,7 +800,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             heatmap: [0; 30],
             bigram_counts: [0; BIGRAM_NUM_TYPES],
             trigram_counts: [0; TRIGRAM_NUM_TYPES],
-            bigram_lists: [None, bl(), bl(), bl(), bl(), bl(), bl(), bl()],
+            bigram_lists: [None, bl(), bl(), bl(), bl(), bl(), bl(), bl(), bl()],
             trigram_lists: [None, tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl()],
             finger_travel: [0.0; 8],
             wlsbs: 0.0,
@@ -958,7 +958,7 @@ impl KuehlmakModel {
                     (props.d_rel[k0]*4.0 - props.d_abs) as f64 * count as f64;
             }
 
-            if k0 == k1 || bigram_type != BIGRAM_NONE {
+            if bigram_type != BIGRAM_ALTERNATE {
                 same_hand[k0 % 10 / 5] += count;
             }
         }
@@ -1111,19 +1111,20 @@ impl KuehlmakModel {
                                 .map(|b| (mirror_key(b.1), mirror_key(b.0))));
         scissors.sort();
 
-        let mut bigram_types = [[BIGRAM_NONE as u8; 30]; 30];
+        let mut bigram_types = [[BIGRAM_ALTERNATE as u8; 30]; 30];
         for (i, &KeyProps {hand: h0, finger: f0, is_stretch: s0, ..})
                 in key_props.iter().enumerate() {
             for (j, &KeyProps {hand: h1, finger: f1, is_stretch: s1, ..})
-                    in key_props.iter().enumerate()
-                                .filter(|&(j, _)| i != j) {
+                    in key_props.iter().enumerate() {
                 if h0 != h1 {
                     continue;
                 }
 
                 let b = (i as u8, j as u8);
 
-                if f0 == f1 {
+                if i == j {
+                    bigram_types[i][j] = BIGRAM_SAME_KEY as u8;
+                } else if f0 == f1 {
                     bigram_types[i][j] = BIGRAM_SFB as u8;
                 } else if s0 || s1 {
                     let d = (f0 as i8 - f1 as i8).abs() as u8;
@@ -1284,7 +1285,7 @@ const R_MIDDLE: usize = 5;
 const R_RING:   usize = 6;
 const R_PINKY:  usize = 7;
 
-const BIGRAM_NONE:       usize = 0;
+const BIGRAM_ALTERNATE:  usize = 0;
 const BIGRAM_ROLL:       usize = 1;
 const BIGRAM_STRAIN:     usize = 2;
 const BIGRAM_LSB1:       usize = 3;
@@ -1292,7 +1293,8 @@ const BIGRAM_LSB2:       usize = 4;
 const BIGRAM_LSB3:       usize = 5;
 const BIGRAM_SCISSOR:    usize = 6;
 const BIGRAM_SFB:        usize = 7;
-const BIGRAM_NUM_TYPES:  usize = 8;
+const BIGRAM_SAME_KEY:   usize = 8;
+const BIGRAM_NUM_TYPES:  usize = 9;
 
 const TRIGRAM_NONE:      usize = 0;
 const TRIGRAM_D_ROLL:    usize = 1;
