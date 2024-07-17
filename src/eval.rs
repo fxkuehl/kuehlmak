@@ -316,21 +316,22 @@ pub struct KuehlmakWeights {
     effort: f64,
     travel: f64,
     imbalance: f64,
-    rolls: f64,
-    strains: f64,
+    drolls: f64,
+    urolls: f64,
     #[serde(rename = "WLSBs")]
     wlsbs: f64,
     scissors: f64,
     #[serde(rename = "SFBs")]
     sfbs: f64,
-    d_rolls: f64,
-    d_strains: f64,
+    d_drolls: f64,
+    d_urolls: f64,
     #[serde(rename = "dWLSBs")]
     d_wlsbs: f64,
     d_scissors: f64,
     #[serde(rename = "dSFBs")]
     d_sfbs: f64,
-    samehands: f64,
+    #[serde(rename = "3rolls")]
+    trirolls: f64,
     redirects: f64,
 }
 
@@ -340,17 +341,17 @@ impl Default for KuehlmakWeights {
             effort:     0.1,
             travel:     1.0,
             imbalance:  0.05,
-            rolls:      0.0, // Only same-hand bigram type not penalized
-            strains:    1.0,
+            drolls:    -0.5, // better than hand alternation
+            urolls:     0.0, // same as alternation (which is not scored)
             wlsbs:      1.0,
             scissors:   5.0,
             sfbs:       5.0,
-            d_rolls:   -1.0, // negative to maximize fast trigrams
-            d_strains:  1.0,
+            d_drolls:  -0.5,
+            d_urolls:   0.0,
             d_wlsbs:    1.0,
             d_scissors: 5.0,
             d_sfbs:     5.0,
-            samehands: -1.0,
+            trirolls:  -0.5,
             redirects:  5.0,
         }
     }
@@ -613,27 +614,27 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                  ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                  ft_iter.next().unwrap(), ft_iter.next().unwrap())?;
 
-        write!(w, "     Roll Strain WLSB Scissor SFB |")?;
+        write!(w, "    DRoll URoll  WLSB Scissor SFB |")?;
         write_key_row(w, key_space[0])?;
 
         write!(w, " AB {:5.1} {:5.1} {:5.1} {:5.1} {:5.1} |",
-               self.bigram_counts[BIGRAM_ROLL] as f64 * norm,
-               self.bigram_counts[BIGRAM_STRAIN] as f64 * norm,
+               self.bigram_counts[BIGRAM_DROLL] as f64 * norm,
+               self.bigram_counts[BIGRAM_UROLL] as f64 * norm,
                self.wlsbs as f64 * norm,
                self.bigram_counts[BIGRAM_SCISSOR] as f64 * norm,
                self.bigram_counts[BIGRAM_SFB] as f64 * norm)?;
         write_heat_row(w, key_space[0])?;
 
         write!(w, "A_B {:5.1} {:5.1} {:5.1} {:5.1} {:5.1} |",
-               self.trigram_counts[TRIGRAM_D_ROLL] as f64 * norm,
-               self.trigram_counts[TRIGRAM_D_STRAIN] as f64 * norm,
+               self.trigram_counts[TRIGRAM_D_DROLL] as f64 * norm,
+               self.trigram_counts[TRIGRAM_D_UROLL] as f64 * norm,
                self.d_wlsbs * norm,
                self.trigram_counts[TRIGRAM_D_SCISSOR] as f64 * norm,
                self.trigram_counts[TRIGRAM_D_SFB] as f64 * norm)?;
         write_key_row(w, key_space[1])?;
 
         write!(w, "ABC {:5.1} {:5.1} <-Redirect        |",
-               self.trigram_counts[TRIGRAM_SAMEHAND] as f64 * norm,
+               self.trigram_counts[TRIGRAM_3ROLL] as f64 * norm,
                self.trigram_counts[TRIGRAM_REDIRECT] as f64 * norm)?;
         write_heat_row(w, key_space[1])?;
 
@@ -669,7 +670,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let bigram_names = ["", "Rolls", "Strains", "LSB1s", "LSB2s", "LSB3s", "Scissors", "SFBs", "SameKey"];
+        let bigram_names = ["", "DRolls", "URolls", "LSB1s", "LSB2s", "LSB3s", "Scissors", "SFBs", "SameKey"];
         for (vec, name) in self.bigram_lists.iter()
                                .zip(bigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -701,7 +702,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let trigram_names = ["", "dRolls", "dStrains", "dLSB1s", "dLSB2s", "dLSB3s", "dScissors", "dSFBs", "Samehands", "Redirects"];
+        let trigram_names = ["", "dDRolls", "dURolls", "dLSB1s", "dLSB2s", "dLSB3s", "dScissors", "dSFBs", "3Rolls", "Redirects"];
         for (vec, name) in self.trigram_lists.iter()
                                .zip(trigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -747,17 +748,17 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             self.effort,
             self.travel,
             self.imbalance,
-            self.bigram_counts[BIGRAM_ROLL] as f64,
-            self.bigram_counts[BIGRAM_STRAIN] as f64,
+            self.bigram_counts[BIGRAM_DROLL] as f64,
+            self.bigram_counts[BIGRAM_UROLL] as f64,
             self.wlsbs,
             self.bigram_counts[BIGRAM_SCISSOR] as f64,
             self.bigram_counts[BIGRAM_SFB] as f64,
-            self.trigram_counts[TRIGRAM_D_ROLL] as f64,
-            self.trigram_counts[TRIGRAM_D_STRAIN] as f64,
+            self.trigram_counts[TRIGRAM_D_DROLL] as f64,
+            self.trigram_counts[TRIGRAM_D_UROLL] as f64,
             self.d_wlsbs,
             self.trigram_counts[TRIGRAM_D_SCISSOR] as f64,
             self.trigram_counts[TRIGRAM_D_SFB] as f64,
-            self.trigram_counts[TRIGRAM_SAMEHAND] as f64,
+            self.trigram_counts[TRIGRAM_3ROLL] as f64,
             self.trigram_counts[TRIGRAM_REDIRECT] as f64,
         ]
     }
@@ -768,17 +769,17 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             ("effort".to_string(), 2),
             ("travel".to_string(), 3),
             ("imbalance".to_string(), 4),
-            ("rolls".to_string(), 5),
-            ("strains".to_string(), 6),
+            ("drolls".to_string(), 5),
+            ("urolls".to_string(), 6),
             ("WLSBs".to_string(), 7),
             ("scissors".to_string(), 8),
             ("SFBs".to_string(), 9),
-            ("d_rolls".to_string(), 10),
-            ("d_strains".to_string(), 11),
+            ("d_drolls".to_string(), 10),
+            ("d_urolls".to_string(), 11),
             ("dWLSBs".to_string(), 12),
             ("d_scissors".to_string(), 13),
             ("dSFBs".to_string(), 14),
-            ("samehands".to_string(), 15),
+            ("3rolls".to_string(), 15),
             ("redirects".to_string(), 16),
         ])
     }
@@ -832,26 +833,26 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             (self.params.weights.effort, scores.effort),
             (self.params.weights.travel, scores.travel),
             (self.params.weights.imbalance, scores.imbalance),
-            (self.params.weights.rolls / strokes,
-             scores.bigram_counts[BIGRAM_ROLL] as f64),
-            (self.params.weights.strains / strokes,
-             scores.bigram_counts[BIGRAM_STRAIN] as f64),
+            (self.params.weights.drolls / strokes,
+             scores.bigram_counts[BIGRAM_DROLL] as f64),
+            (self.params.weights.urolls / strokes,
+             scores.bigram_counts[BIGRAM_UROLL] as f64),
             (self.params.weights.wlsbs / strokes, scores.wlsbs),
             (self.params.weights.scissors / strokes,
              scores.bigram_counts[BIGRAM_SCISSOR] as f64),
             (self.params.weights.sfbs / strokes,
              scores.bigram_counts[BIGRAM_SFB] as f64),
-            (self.params.weights.d_rolls / strokes,
-             scores.trigram_counts[TRIGRAM_D_ROLL] as f64),
-            (self.params.weights.d_strains / strokes,
-             scores.trigram_counts[TRIGRAM_D_STRAIN] as f64),
+            (self.params.weights.d_drolls / strokes,
+             scores.trigram_counts[TRIGRAM_D_DROLL] as f64),
+            (self.params.weights.d_urolls / strokes,
+             scores.trigram_counts[TRIGRAM_D_UROLL] as f64),
             (self.params.weights.d_wlsbs / strokes, scores.d_wlsbs),
             (self.params.weights.d_scissors / strokes,
              scores.trigram_counts[TRIGRAM_D_SCISSOR] as f64),
             (self.params.weights.d_sfbs / strokes,
              scores.trigram_counts[TRIGRAM_D_SFB] as f64),
-            (self.params.weights.samehands / strokes,
-             scores.trigram_counts[TRIGRAM_SAMEHAND] as f64),
+            (self.params.weights.trirolls / strokes,
+             scores.trigram_counts[TRIGRAM_3ROLL] as f64),
             (self.params.weights.redirects / strokes,
              scores.trigram_counts[TRIGRAM_REDIRECT] as f64),
         ].into_iter().map(|(score, weight)| score * weight).sum::<f64>();
@@ -1139,9 +1140,9 @@ impl KuehlmakModel {
                 } else if f0 == 1 || f0 == 6 || // Rolling away from ring finger or
                           f0 == 3 || f0 == 4 || // Involving index finger
                           f1 == 3 || f1 == 4 {
-                    bigram_types[i][j] = BIGRAM_ROLL as u8;
+                    bigram_types[i][j] = BIGRAM_DROLL as u8;
                 } else {
-                    bigram_types[i][j] = BIGRAM_STRAIN as u8;
+                    bigram_types[i][j] = BIGRAM_UROLL as u8;
                 }
             }
         }
@@ -1161,20 +1162,22 @@ impl KuehlmakModel {
                         trigram_types[i][j][k] = TRIGRAM_D_SCISSOR as u8;
                     } else if h0 != h1 && h0 == h2 {
                         trigram_types[i][j][k] = match bigram_types[i][k] as usize {
-                            BIGRAM_ROLL   => TRIGRAM_D_ROLL,
-                            BIGRAM_STRAIN => TRIGRAM_D_STRAIN,
-                            BIGRAM_LSB1   => TRIGRAM_D_LSB1,
-                            BIGRAM_LSB2   => TRIGRAM_D_LSB2,
-                            BIGRAM_LSB3   => TRIGRAM_D_LSB3,
-                            _             => TRIGRAM_NONE
+                            BIGRAM_DROLL => TRIGRAM_D_DROLL,
+                            BIGRAM_UROLL => TRIGRAM_D_UROLL,
+                            BIGRAM_LSB1  => TRIGRAM_D_LSB1,
+                            BIGRAM_LSB2  => TRIGRAM_D_LSB2,
+                            BIGRAM_LSB3  => TRIGRAM_D_LSB3,
+                            _            => TRIGRAM_NONE
                         } as u8;
                     } else if h0 == h1 && h1 == h2 && // All in the same hand
                             f0 != f1 && f1 != f2 {    // No finger repeat
                         if (f2 > f1) ^ (f1 > f0) {    // Reversing direction
                             trigram_types[i][j][k] = TRIGRAM_REDIRECT as u8;
-                        } else if bigram_types[i][j] == BIGRAM_ROLL as u8 &&
-                                bigram_types[j][k] == BIGRAM_ROLL as u8 {
-                            trigram_types[i][j][k] = TRIGRAM_SAMEHAND as u8;
+                        } else if (bigram_types[i][j] == BIGRAM_DROLL as u8 ||
+                                   bigram_types[i][j] == BIGRAM_UROLL as u8) &&
+                                  (bigram_types[j][k] == BIGRAM_DROLL as u8 ||
+                                   bigram_types[j][k] == BIGRAM_UROLL as u8) {
+                            trigram_types[i][j][k] = TRIGRAM_3ROLL as u8;
                         }
                     }
                 }
@@ -1286,8 +1289,8 @@ const R_RING:   usize = 6;
 const R_PINKY:  usize = 7;
 
 const BIGRAM_ALTERNATE:  usize = 0;
-const BIGRAM_ROLL:       usize = 1;
-const BIGRAM_STRAIN:     usize = 2;
+const BIGRAM_DROLL:      usize = 1;
+const BIGRAM_UROLL:      usize = 2;
 const BIGRAM_LSB1:       usize = 3;
 const BIGRAM_LSB2:       usize = 4;
 const BIGRAM_LSB3:       usize = 5;
@@ -1297,14 +1300,14 @@ const BIGRAM_SAME_KEY:   usize = 8;
 const BIGRAM_NUM_TYPES:  usize = 9;
 
 const TRIGRAM_NONE:      usize = 0;
-const TRIGRAM_D_ROLL:    usize = 1;
-const TRIGRAM_D_STRAIN:  usize = 2;
+const TRIGRAM_D_DROLL:   usize = 1;
+const TRIGRAM_D_UROLL:   usize = 2;
 const TRIGRAM_D_LSB1:    usize = 3;
 const TRIGRAM_D_LSB2:    usize = 4;
 const TRIGRAM_D_LSB3:    usize = 5;
 const TRIGRAM_D_SCISSOR: usize = 6;
 const TRIGRAM_D_SFB:     usize = 7;
-const TRIGRAM_SAMEHAND:  usize = 8;
+const TRIGRAM_3ROLL:     usize = 8;
 const TRIGRAM_REDIRECT:  usize = 9;
 const TRIGRAM_NUM_TYPES: usize = 10;
 
