@@ -671,7 +671,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let bigram_names = ["", "DRolls", "URolls", "LSB1s", "LSB2s", "LSB3s", "Scissors", "SFBs", "SameKey"];
+        let bigram_names = ["", "SameKey", "DRolls", "URolls", "LSB1s", "LSB2s", "LSB3s", "Scissors", "SFBs"];
         for (vec, name) in self.bigram_lists.iter()
                                .zip(bigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -703,7 +703,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let trigram_names = ["", "dDRolls", "dURolls", "dLSB1s", "dLSB2s", "dLSB3s", "dScissors", "dSFBs", "RRolls", "Redirects", "Contortions"];
+        let trigram_names = ["", "dSameKey", "dDRolls", "dURolls", "dLSB1s", "dLSB2s", "dLSB3s", "dScissors", "dSFBs", "RRolls", "Redirects", "Contortions"];
         for (vec, name) in self.trigram_lists.iter()
                                .zip(trigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -805,7 +805,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             bigram_counts: [0; BIGRAM_NUM_TYPES],
             trigram_counts: [0; TRIGRAM_NUM_TYPES],
             bigram_lists: [None, bl(), bl(), bl(), bl(), bl(), bl(), bl(), bl()],
-            trigram_lists: [None, tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl()],
+            trigram_lists: [None, tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl()],
             finger_travel: [0.0; 8],
             wlsbs: 0.0,
             d_wlsbs: 0.0,
@@ -955,7 +955,7 @@ impl KuehlmakModel {
                 v.push((bigram, count))
             }
 
-            if bigram_type == BIGRAM_SFB {
+            if bigram_type == BIGRAM_SFB || bigram_type == BIGRAM_SAMEKEY {
                 // Correct travel estimate: going to k1 not from home
                 // position but from k0 instead.
                 let props = &self.key_props[k1];
@@ -1013,7 +1013,7 @@ impl KuehlmakModel {
                 v.push((trigram, count))
             }
 
-            if trigram_type == TRIGRAM_D_SFB {
+            if trigram_type == TRIGRAM_D_SFB || trigram_type == TRIGRAM_D_SAMEKEY {
                 // Correct travel estimate: going to k2 not from home
                 // position but from k0 instead.
                 let props = &self.key_props[k2];
@@ -1129,7 +1129,7 @@ impl KuehlmakModel {
                 let b = (i as u8, j as u8);
 
                 if i == j {
-                    bigram_types[i][j] = BIGRAM_SAME_KEY as u8;
+                    bigram_types[i][j] = BIGRAM_SAMEKEY as u8;
                 } else if f0 == f1 {
                     bigram_types[i][j] = BIGRAM_SFB as u8;
                 } else if s0 || s1 {
@@ -1159,20 +1159,21 @@ impl KuehlmakModel {
                     in key_props.iter().enumerate() {
                 for (k, &KeyProps {hand: h2, finger: f2, ..})
                         in key_props.iter().enumerate() {
-                    if f0 == f2 && f0 != f1 && i != k { // Disjointed same-finger bigrams
+                    if i == k && f0 != f1 {
+                        trigram_types[i][j][k] = TRIGRAM_D_SAMEKEY as u8;
+                    } else if f0 == f2 && f0 != f1 { // Disjointed same-finger bigrams
                         trigram_types[i][j][k] = TRIGRAM_D_SFB as u8;
                     } else if f0 != f1 && f1 != f2 && // Disjointed scissors
                             bigram_types[i][k] == BIGRAM_SCISSOR as u8 {
                         trigram_types[i][j][k] = TRIGRAM_D_SCISSOR as u8;
                     } else if h0 != h1 && h0 == h2 { // Disjointed same-hand bigrams
                         trigram_types[i][j][k] = match bigram_types[i][k] as usize {
-                            BIGRAM_DROLL    => TRIGRAM_D_DROLL,
-                            BIGRAM_UROLL    => TRIGRAM_D_UROLL,
-                            BIGRAM_LSB1     => TRIGRAM_D_LSB1,
-                            BIGRAM_LSB2     => TRIGRAM_D_LSB2,
-                            BIGRAM_LSB3     => TRIGRAM_D_LSB3,
-                            BIGRAM_SAME_KEY => TRIGRAM_NONE,
-                            _               => TRIGRAM_NONE // Should not get here
+                            BIGRAM_DROLL => TRIGRAM_D_DROLL,
+                            BIGRAM_UROLL => TRIGRAM_D_UROLL,
+                            BIGRAM_LSB1  => TRIGRAM_D_LSB1,
+                            BIGRAM_LSB2  => TRIGRAM_D_LSB2,
+                            BIGRAM_LSB3  => TRIGRAM_D_LSB3,
+                            _            => panic!("Unexpected disjointed same-hand trigram")
                         } as u8;
                     } else if h0 == h1 && h1 == h2 { // Same-hand trigrams (excluding d-Scissors and dSFBs)
                         if bigram_types[i][j] >= BIGRAM_LSB1 as u8 && // Sequence of two bad bigrams
@@ -1302,28 +1303,29 @@ const R_RING:   usize = 6;
 const R_PINKY:  usize = 7;
 
 const BIGRAM_ALTERNATE:  usize = 0;
-const BIGRAM_DROLL:      usize = 1;
-const BIGRAM_UROLL:      usize = 2;
-const BIGRAM_LSB1:       usize = 3;
-const BIGRAM_LSB2:       usize = 4;
-const BIGRAM_LSB3:       usize = 5;
-const BIGRAM_SCISSOR:    usize = 6;
-const BIGRAM_SFB:        usize = 7;
-const BIGRAM_SAME_KEY:   usize = 8;
+const BIGRAM_SAMEKEY:    usize = 1;
+const BIGRAM_DROLL:      usize = 2;
+const BIGRAM_UROLL:      usize = 3;
+const BIGRAM_LSB1:       usize = 4;
+const BIGRAM_LSB2:       usize = 5;
+const BIGRAM_LSB3:       usize = 6;
+const BIGRAM_SCISSOR:    usize = 7;
+const BIGRAM_SFB:        usize = 8;
 const BIGRAM_NUM_TYPES:  usize = 9;
 
 const TRIGRAM_NONE:      usize = 0;
-const TRIGRAM_D_DROLL:   usize = 1;
-const TRIGRAM_D_UROLL:   usize = 2;
-const TRIGRAM_D_LSB1:    usize = 3;
-const TRIGRAM_D_LSB2:    usize = 4;
-const TRIGRAM_D_LSB3:    usize = 5;
-const TRIGRAM_D_SCISSOR: usize = 6;
-const TRIGRAM_D_SFB:     usize = 7;
-const TRIGRAM_RROLL:     usize = 8;
-const TRIGRAM_REDIRECT:  usize = 9;
-const TRIGRAM_CONTORT:   usize = 10;
-const TRIGRAM_NUM_TYPES: usize = 11;
+const TRIGRAM_D_SAMEKEY: usize = 1;
+const TRIGRAM_D_DROLL:   usize = 2;
+const TRIGRAM_D_UROLL:   usize = 3;
+const TRIGRAM_D_LSB1:    usize = 4;
+const TRIGRAM_D_LSB2:    usize = 5;
+const TRIGRAM_D_LSB3:    usize = 6;
+const TRIGRAM_D_SCISSOR: usize = 7;
+const TRIGRAM_D_SFB:     usize = 8;
+const TRIGRAM_RROLL:     usize = 9;
+const TRIGRAM_REDIRECT:  usize = 10;
+const TRIGRAM_CONTORT:   usize = 11;
+const TRIGRAM_NUM_TYPES: usize = 12;
 
 
 type KeyOffsets = [[f32; 2]; 3];
