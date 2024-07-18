@@ -330,9 +330,9 @@ pub struct KuehlmakWeights {
     d_scissors: f64,
     #[serde(rename = "dSFBs")]
     d_sfbs: f64,
-    #[serde(rename = "3rolls")]
-    trirolls: f64,
+    rrolls: f64,
     redirects: f64,
+    contorts: f64,
 }
 
 impl Default for KuehlmakWeights {
@@ -351,8 +351,9 @@ impl Default for KuehlmakWeights {
             d_wlsbs:    1.0,
             d_scissors: 5.0,
             d_sfbs:     5.0,
-            trirolls:  -0.5,
+            rrolls:    -0.5,
             redirects:  5.0,
+            contorts:   5.0,
         }
     }
 }
@@ -633,18 +634,18 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                self.trigram_counts[TRIGRAM_D_SFB] as f64 * norm)?;
         write_key_row(w, key_space[1])?;
 
-        write!(w, "ABC {:5.1} {:5.1} <-Redirect        |",
-               self.trigram_counts[TRIGRAM_3ROLL] as f64 * norm,
-               self.trigram_counts[TRIGRAM_REDIRECT] as f64 * norm)?;
+        write!(w, "    RRoll Redir Contort  Runs L:R |")?;
         write_heat_row(w, key_space[1])?;
 
-        write!(w, "Score+Constraints {:7.4}{:+8.4} |",
-               self.total, self.constraints)?;
+        write!(w, "ABC {:5.1} {:5.1} {:5.1}   {:4.2}:{:4.2} |",
+               self.trigram_counts[TRIGRAM_RROLL] as f64 * norm,
+               self.trigram_counts[TRIGRAM_REDIRECT] as f64 * norm,
+               self.trigram_counts[TRIGRAM_CONTORT] as f64 * norm,
+               self.hand_runs[0], self.hand_runs[1])?;
         write_key_row(w, key_space[2])?;
 
-        write!(w, "Pinball {:4.2}:{:4.2}  Total ={:7.4} |",
-               self.hand_runs[0], self.hand_runs[1],
-               self.total + self.constraints)?;
+        write!(w, "Score+Con{:7.4}{:+8.4} ={:7.4} |",
+               self.total, self.constraints, self.total + self.constraints)?;
         write_heat_row(w, key_space[2])?;
 
         Ok(())
@@ -702,7 +703,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let trigram_names = ["", "dDRolls", "dURolls", "dLSB1s", "dLSB2s", "dLSB3s", "dScissors", "dSFBs", "3Rolls", "Redirects"];
+        let trigram_names = ["", "dDRolls", "dURolls", "dLSB1s", "dLSB2s", "dLSB3s", "dScissors", "dSFBs", "RRolls", "Redirects", "Contortions"];
         for (vec, name) in self.trigram_lists.iter()
                                .zip(trigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -758,8 +759,9 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             self.d_wlsbs,
             self.trigram_counts[TRIGRAM_D_SCISSOR] as f64,
             self.trigram_counts[TRIGRAM_D_SFB] as f64,
-            self.trigram_counts[TRIGRAM_3ROLL] as f64,
+            self.trigram_counts[TRIGRAM_RROLL] as f64,
             self.trigram_counts[TRIGRAM_REDIRECT] as f64,
+            self.trigram_counts[TRIGRAM_CONTORT] as f64,
         ]
     }
     fn get_score_names() -> BTreeMap<String, usize> {
@@ -779,8 +781,9 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             ("dWLSBs".to_string(), 12),
             ("d_scissors".to_string(), 13),
             ("dSFBs".to_string(), 14),
-            ("3rolls".to_string(), 15),
+            ("rrolls".to_string(), 15),
             ("redirects".to_string(), 16),
+            ("contorts".to_string(), 16),
         ])
     }
 }
@@ -802,7 +805,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             bigram_counts: [0; BIGRAM_NUM_TYPES],
             trigram_counts: [0; TRIGRAM_NUM_TYPES],
             bigram_lists: [None, bl(), bl(), bl(), bl(), bl(), bl(), bl(), bl()],
-            trigram_lists: [None, tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl()],
+            trigram_lists: [None, tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl()],
             finger_travel: [0.0; 8],
             wlsbs: 0.0,
             d_wlsbs: 0.0,
@@ -851,10 +854,12 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
              scores.trigram_counts[TRIGRAM_D_SCISSOR] as f64),
             (self.params.weights.d_sfbs / strokes,
              scores.trigram_counts[TRIGRAM_D_SFB] as f64),
-            (self.params.weights.trirolls / strokes,
-             scores.trigram_counts[TRIGRAM_3ROLL] as f64),
+            (self.params.weights.rrolls / strokes,
+             scores.trigram_counts[TRIGRAM_RROLL] as f64),
             (self.params.weights.redirects / strokes,
              scores.trigram_counts[TRIGRAM_REDIRECT] as f64),
+            (self.params.weights.contorts / strokes,
+             scores.trigram_counts[TRIGRAM_CONTORT] as f64),
         ].into_iter().map(|(score, weight)| score * weight).sum::<f64>();
 
         scores
@@ -1153,33 +1158,41 @@ impl KuehlmakModel {
             for (j, &KeyProps {hand: h1, finger: f1, ..})
                     in key_props.iter().enumerate() {
                 for (k, &KeyProps {hand: h2, finger: f2, ..})
-                        in key_props.iter().enumerate()
-                                    .filter(|&(k, _)| i != k) {
-                    if f0 == f2 && f0 != f1 {
+                        in key_props.iter().enumerate() {
+                    if f0 == f2 && f0 != f1 && i != k { // Disjointed same-finger bigrams
                         trigram_types[i][j][k] = TRIGRAM_D_SFB as u8;
-                    } else if f0 != f1 && f1 != f2 &&
+                    } else if f0 != f1 && f1 != f2 && // Disjointed scissors
                             bigram_types[i][k] == BIGRAM_SCISSOR as u8 {
                         trigram_types[i][j][k] = TRIGRAM_D_SCISSOR as u8;
-                    } else if h0 != h1 && h0 == h2 {
+                    } else if h0 != h1 && h0 == h2 { // Disjointed same-hand bigrams
                         trigram_types[i][j][k] = match bigram_types[i][k] as usize {
-                            BIGRAM_DROLL => TRIGRAM_D_DROLL,
-                            BIGRAM_UROLL => TRIGRAM_D_UROLL,
-                            BIGRAM_LSB1  => TRIGRAM_D_LSB1,
-                            BIGRAM_LSB2  => TRIGRAM_D_LSB2,
-                            BIGRAM_LSB3  => TRIGRAM_D_LSB3,
-                            _            => TRIGRAM_NONE
+                            BIGRAM_DROLL    => TRIGRAM_D_DROLL,
+                            BIGRAM_UROLL    => TRIGRAM_D_UROLL,
+                            BIGRAM_LSB1     => TRIGRAM_D_LSB1,
+                            BIGRAM_LSB2     => TRIGRAM_D_LSB2,
+                            BIGRAM_LSB3     => TRIGRAM_D_LSB3,
+                            BIGRAM_SAME_KEY => TRIGRAM_NONE,
+                            _               => TRIGRAM_NONE // Should not get here
                         } as u8;
-                    } else if h0 == h1 && h1 == h2 && // All in the same hand
-                            f0 != f1 && f1 != f2 {    // No finger repeat
-                        if (f2 > f1) ^ (f1 > f0) {    // Reversing direction
-                            trigram_types[i][j][k] = TRIGRAM_REDIRECT as u8;
-                        } else if (bigram_types[i][j] == BIGRAM_DROLL as u8 ||
+                    } else if h0 == h1 && h1 == h2 { // Same-hand trigrams (excluding d-Scissors and dSFBs)
+                        if bigram_types[i][j] >= BIGRAM_LSB1 as u8 && // Sequence of two bad bigrams
+                            bigram_types[j][k] >= BIGRAM_LSB1 as u8 {
+                            trigram_types[i][j][k] = TRIGRAM_CONTORT as u8;
+                        } else if (bigram_types[i][j] == BIGRAM_DROLL as u8 || // Sequences of two rolls
                                    bigram_types[i][j] == BIGRAM_UROLL as u8) &&
                                   (bigram_types[j][k] == BIGRAM_DROLL as u8 ||
                                    bigram_types[j][k] == BIGRAM_UROLL as u8) {
-                            trigram_types[i][j][k] = TRIGRAM_3ROLL as u8;
+                            if (f2 > f1) ^ (f1 > f0) { // Rolls reversing direction
+                                trigram_types[i][j][k] = TRIGRAM_REDIRECT as u8;
+                            } else { // Rolls in the same direction
+                                trigram_types[i][j][k] = TRIGRAM_RROLL as u8;
+                            }
                         }
+                        // What's left are same-hand trigrams that start or
+                        // end with a roll. Left as TRIGRAM_NONE and not scored.
                     }
+                    // What's left are same-hand bigrams followed or preceded by
+                    // hand changes. Left as TRIGRAM_NONE and not scored.
                 }
             }
         }
@@ -1307,9 +1320,10 @@ const TRIGRAM_D_LSB2:    usize = 4;
 const TRIGRAM_D_LSB3:    usize = 5;
 const TRIGRAM_D_SCISSOR: usize = 6;
 const TRIGRAM_D_SFB:     usize = 7;
-const TRIGRAM_3ROLL:     usize = 8;
+const TRIGRAM_RROLL:     usize = 8;
 const TRIGRAM_REDIRECT:  usize = 9;
-const TRIGRAM_NUM_TYPES: usize = 10;
+const TRIGRAM_CONTORT:   usize = 10;
+const TRIGRAM_NUM_TYPES: usize = 11;
 
 
 type KeyOffsets = [[f32; 2]; 3];
