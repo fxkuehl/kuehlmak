@@ -1163,22 +1163,23 @@ impl KuehlmakModel {
                         trigram_types[i][j][k] = TRIGRAM_D_SAMEKEY as u8;
                     } else if f0 == f2 && f0 != f1 { // Disjointed same-finger bigrams
                         trigram_types[i][j][k] = TRIGRAM_D_SFB as u8;
-                    } else if f0 != f1 && f1 != f2 && // Disjointed scissors
-                            bigram_types[i][k] == BIGRAM_SCISSOR as u8 {
-                        trigram_types[i][j][k] = TRIGRAM_D_SCISSOR as u8;
-                    } else if h0 != h1 && h0 == h2 { // Disjointed same-hand bigrams
+                    } else if h0 == h2 && h0 != h1 { // Disjointed same-hand bigrams
                         trigram_types[i][j][k] = match bigram_types[i][k] as usize {
-                            BIGRAM_DROLL => TRIGRAM_D_DROLL,
-                            BIGRAM_UROLL => TRIGRAM_D_UROLL,
-                            BIGRAM_LSB1  => TRIGRAM_D_LSB1,
-                            BIGRAM_LSB2  => TRIGRAM_D_LSB2,
-                            BIGRAM_LSB3  => TRIGRAM_D_LSB3,
-                            _            => panic!("Unexpected disjointed same-hand trigram")
+                            BIGRAM_DROLL   => TRIGRAM_D_DROLL,
+                            BIGRAM_UROLL   => TRIGRAM_D_UROLL,
+                            BIGRAM_LSB1    => TRIGRAM_D_LSB1,
+                            BIGRAM_LSB2    => TRIGRAM_D_LSB2,
+                            BIGRAM_LSB3    => TRIGRAM_D_LSB3,
+                            BIGRAM_SCISSOR => TRIGRAM_D_SCISSOR,
+                            _              => panic!("Unexpected disjointed same-hand trigram")
                         } as u8;
-                    } else if h0 == h1 && h1 == h2 { // Same-hand trigrams (excluding d-Scissors and dSFBs)
+                    } else if h0 == h1 && h1 == h2 { // Same-hand trigrams (excluding dSFBs)
                         if bigram_types[i][j] >= BIGRAM_LSB1 as u8 && // Sequence of two bad bigrams
                             bigram_types[j][k] >= BIGRAM_LSB1 as u8 {
                             trigram_types[i][j][k] = TRIGRAM_CONTORT as u8;
+                        } else if f0 != f1 && f1 != f2 && // Same-hand disjointed scissors
+                                bigram_types[i][k] == BIGRAM_SCISSOR as u8 {
+                            trigram_types[i][j][k] = TRIGRAM_D_SCISSOR as u8;
                         } else if (bigram_types[i][j] == BIGRAM_DROLL as u8 || // Sequences of two rolls
                                    bigram_types[i][j] == BIGRAM_UROLL as u8) &&
                                   (bigram_types[j][k] == BIGRAM_DROLL as u8 ||
