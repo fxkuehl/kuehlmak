@@ -1180,18 +1180,18 @@ impl KuehlmakModel {
                         } else if f0 != f1 && f1 != f2 && // Same-hand disjointed scissors
                                 bigram_types[i][k] == BIGRAM_SCISSOR as u8 {
                             trigram_types[i][j][k] = TRIGRAM_D_SCISSOR as u8;
-                        } else if (bigram_types[i][j] == BIGRAM_DROLL as u8 || // Sequences of two rolls
-                                   bigram_types[i][j] == BIGRAM_UROLL as u8) &&
+                        } else if f0 != f1 && f1 != f2 && // Reversing direction
+                                ((f2 > f1) ^ (f1 > f0)) {
+                            trigram_types[i][j][k] = TRIGRAM_REDIRECT as u8;
+                        } else if (bigram_types[i][j] == BIGRAM_DROLL as u8 ||  // Sequences of two rolls
+                                   bigram_types[i][j] == BIGRAM_UROLL as u8) && // in the same direction
                                   (bigram_types[j][k] == BIGRAM_DROLL as u8 ||
                                    bigram_types[j][k] == BIGRAM_UROLL as u8) {
-                            if (f2 > f1) ^ (f1 > f0) { // Rolls reversing direction
-                                trigram_types[i][j][k] = TRIGRAM_REDIRECT as u8;
-                            } else { // Rolls in the same direction
-                                trigram_types[i][j][k] = TRIGRAM_RROLL as u8;
-                            }
+                            trigram_types[i][j][k] = TRIGRAM_RROLL as u8;
                         }
-                        // What's left are same-hand trigrams that start or
-                        // end with a roll. Left as TRIGRAM_NONE and not scored.
+                        // What's left are non-reversing same-hand trigrams
+                        // that start or end with a roll. Left as TRIGRAM_NONE
+                        // and not scored.
                     }
                     // What's left are same-hand bigrams followed or preceded by
                     // hand changes. Left as TRIGRAM_NONE and not scored.
