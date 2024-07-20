@@ -783,7 +783,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             ("dSFBs".to_string(), 14),
             ("rrolls".to_string(), 15),
             ("redirects".to_string(), 16),
-            ("contorts".to_string(), 16),
+            ("contorts".to_string(), 17),
         ])
     }
 }
