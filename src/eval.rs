@@ -242,7 +242,7 @@ struct KeyProps {
     is_stretch: bool,
     d_abs: f32,
     d_rel: [f32; 30],
-    cost: u8,
+    cost: u16,
 }
 
 pub trait EvalScores {
@@ -313,6 +313,10 @@ impl Default for KuehlmakParams {
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(default,deny_unknown_fields)]
 pub struct KuehlmakWeights {
+    index_finger: u8,
+    middle_finger: u8,
+    ring_finger: u8,
+    pinky_finger: u8,
     effort: f64,
     travel: f64,
     imbalance: f64,
@@ -338,22 +342,26 @@ pub struct KuehlmakWeights {
 impl Default for KuehlmakWeights {
     fn default() -> Self {
         KuehlmakWeights {
-            effort:     0.1,
-            travel:     1.0,
-            imbalance:  0.05,
-            drolls:    -0.5, // better than hand alternation
-            urolls:     0.0, // same as alternation (which is not scored)
-            wlsbs:      1.0,
-            scissors:   5.0,
-            sfbs:       5.0,
-            d_drolls:  -0.5,
-            d_urolls:   0.0,
-            d_wlsbs:    1.0,
-            d_scissors: 5.0,
-            d_sfbs:     5.0,
-            rrolls:    -0.5,
-            redirects:  5.0,
-            contorts:   5.0,
+            index_finger:  1,
+            middle_finger: 1,
+            ring_finger:   2,
+            pinky_finger:  5,
+            effort:        0.1,
+            travel:        1.0,
+            imbalance:     0.05,
+            drolls:       -0.5, // better than hand alternation
+            urolls:        0.0, // same as alternation (which is not scored)
+            wlsbs:         1.0,
+            scissors:      5.0,
+            sfbs:          5.0,
+            d_drolls:     -0.5,
+            d_urolls:      0.0,
+            d_wlsbs:       1.0,
+            d_scissors:    5.0,
+            d_sfbs:        5.0,
+            rrolls:       -0.5,
+            redirects:     5.0,
+            contorts:      5.0,
         }
     }
 }
@@ -1060,8 +1068,7 @@ impl KuehlmakModel {
     }
 
     fn score_travel(&self, scores: &mut KuehlmakScores) {
-        // Weigh travel per finger by dividing it by finger strength (average
-        // of the reciprocal of the per key costs). This penalizes travel
+        // Weigh travel per finger by its finger weight. This penalizes travel
         // more heavily on weak fingers.
         //
         // Square the per-finger travel so the score is dominated by the
@@ -1071,17 +1078,20 @@ impl KuehlmakModel {
         //
         // The score is normalized so that on a perfectly balanced layout
         // it is close to the average per-key travel distance.
-        let mut finger_strength = [(0.0, 0); 8];
-        for props in self.key_props.iter() {
-            let f = props.finger as usize;
-            finger_strength[f].0 += (props.cost as f64).recip();
-            finger_strength[f].1 += 1;
-        }
-
-        let norm = finger_strength.iter().map(|&(s, n)| (s / n as f64).powi(2)).sum::<f64>();
-        scores.travel = scores.finger_travel.iter().zip(finger_strength)
-                              .map(|(&travel, (s, n))| {
-                                  let t = travel * n as f64 / s;
+        let finger_weight = [
+            self.params.weights.pinky_finger,
+            self.params.weights.ring_finger,
+            self.params.weights.middle_finger,
+            self.params.weights.index_finger,
+            self.params.weights.index_finger,
+            self.params.weights.middle_finger,
+            self.params.weights.ring_finger,
+            self.params.weights.pinky_finger
+        ];
+        let norm = finger_weight.iter().map(|&w| (w as f64).recip().powi(2)).sum::<f64>();
+        scores.travel = scores.finger_travel.iter().zip(finger_weight)
+                              .map(|(&travel, w)| {
+                                  let t = travel * w as f64;
                                   t * t
                               }).sum::<f64>().mul(norm).sqrt() / scores.strokes as f64;
     }
@@ -1103,7 +1113,7 @@ impl KuehlmakModel {
     pub fn new(params: Option<KuehlmakParams>) -> KuehlmakModel {
         let params = params.unwrap_or_default();
         let mut i = 0;
-        let mut k = || Self::key_props({i += 1; i - 1}, params.board_type);
+        let mut k = || Self::key_props({i += 1; i - 1}, &params);
         let key_props = [
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
@@ -1245,41 +1255,41 @@ impl KuehlmakModel {
         }
     }
 
-    fn key_props(key: u8, keyboard_type: KeyboardType) -> KeyProps {
+    fn key_props(key: u8, params: &KuehlmakParams) -> KeyProps {
         let key = key as usize;
         let row = key / 10;
         let col = key % 10;
         assert!(row < 3);
 
-        let (hand, finger, home_col, is_stretch) = match keyboard_type {
+        let (hand, finger, weight, home_col, is_stretch) = match params.board_type {
             KeyboardType::Hex | KeyboardType::HexStag if row == 0 => match col {
-                0     => (LEFT,  L_PINKY,  0.0, true),
-                1     => (LEFT,  L_PINKY,  0.0, false),
-                2     => (LEFT,  L_RING,   1.0, false),
-                3     => (LEFT,  L_MIDDLE, 2.0, false),
-                4     => (LEFT,  L_INDEX,  3.0, false),
-                5     => (RIGHT, R_INDEX,  6.0, false),
-                6     => (RIGHT, R_MIDDLE, 7.0, false),
-                7     => (RIGHT, R_RING,   8.0, false),
-                8     => (RIGHT, R_PINKY,  9.0, false),
-                9     => (RIGHT, R_PINKY,  9.0, true),
+                0     => (LEFT,  L_PINKY,  params.weights.pinky_finger,  0.0, true),
+                1     => (LEFT,  L_PINKY,  params.weights.pinky_finger,  0.0, false),
+                2     => (LEFT,  L_RING,   params.weights.ring_finger,   1.0, false),
+                3     => (LEFT,  L_MIDDLE, params.weights.middle_finger, 2.0, false),
+                4     => (LEFT,  L_INDEX,  params.weights.index_finger,  3.0, false),
+                5     => (RIGHT, R_INDEX,  params.weights.index_finger,  6.0, false),
+                6     => (RIGHT, R_MIDDLE, params.weights.middle_finger, 7.0, false),
+                7     => (RIGHT, R_RING,   params.weights.ring_finger,   8.0, false),
+                8     => (RIGHT, R_PINKY,  params.weights.pinky_finger,  9.0, false),
+                9     => (RIGHT, R_PINKY,  params.weights.pinky_finger,  9.0, true),
                 _     => panic!("col out of range"),
             },
             _ => match col {
-                0     => (LEFT,  L_PINKY,  0.0, false),
-                1     => (LEFT,  L_RING,   1.0, false),
-                2     => (LEFT,  L_MIDDLE, 2.0, false),
-                3     => (LEFT,  L_INDEX,  3.0, false),
-                4     => (LEFT,  L_INDEX,  3.0, true),
-                5     => (RIGHT, R_INDEX,  6.0, true),
-                6     => (RIGHT, R_INDEX,  6.0, false),
-                7     => (RIGHT, R_MIDDLE, 7.0, false),
-                8     => (RIGHT, R_RING,   8.0, false),
-                9     => (RIGHT, R_PINKY,  9.0, false),
+                0     => (LEFT,  L_PINKY,  params.weights.pinky_finger,  0.0, false),
+                1     => (LEFT,  L_RING,   params.weights.ring_finger,   1.0, false),
+                2     => (LEFT,  L_MIDDLE, params.weights.middle_finger, 2.0, false),
+                3     => (LEFT,  L_INDEX,  params.weights.index_finger,  3.0, false),
+                4     => (LEFT,  L_INDEX,  params.weights.index_finger,  3.0, true),
+                5     => (RIGHT, R_INDEX,  params.weights.index_finger,  6.0, true),
+                6     => (RIGHT, R_INDEX,  params.weights.index_finger,  6.0, false),
+                7     => (RIGHT, R_MIDDLE, params.weights.middle_finger, 7.0, false),
+                8     => (RIGHT, R_RING,   params.weights.ring_finger,   8.0, false),
+                9     => (RIGHT, R_PINKY,  params.weights.pinky_finger,  9.0, false),
                 _     => panic!("col out of range"),
             },
         };
-        let (key_offsets, key_cost) = match keyboard_type {
+        let (key_offsets, key_cost) = match params.board_type {
             KeyboardType::Ortho   => (&KEY_OFFSETS_ORTHO, &KEY_COST_ORTHO),
             KeyboardType::ColStag => (&KEY_OFFSETS_ORTHO, &KEY_COST_COL_STAG),
             KeyboardType::Hex     => (&KEY_OFFSETS_HEX, &KEY_COST_HEX),
@@ -1316,7 +1326,7 @@ impl KuehlmakModel {
             finger: finger as u8,
             is_stretch,
             d_abs, d_rel,
-            cost: key_cost[key],
+            cost: key_cost[key] as u16 * weight as u16,
         }
     }
 }
@@ -1369,32 +1379,32 @@ const KEY_OFFSETS_HEX:   KeyOffsets = [[-1.0,   1.0 ], [0.0, 0.0], [ 0.0, 0.0]];
 const KEY_OFFSETS_ANSI:  KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [ 0.5, 0.5]];
 const KEY_OFFSETS_ISO:   KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [-0.5, 0.5]];
 const KEY_COST_ORTHO: [u8; 30] = [
-    16,  6,  2,  6, 12, 12,  6,  2,  6, 16, // 84
-     5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
-     8, 10,  6,  2,  8,  8,  2,  6, 10,  8, // 68
-]; // 178
+    4,  2,  2,  4, 12, 12,  4,  2,  2,  4,
+    1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
+    2,  4,  4,  2,  6,  6,  2,  4,  4,  2,
+];
 const KEY_COST_COL_STAG: [u8; 30] = [
-    12,  8,  4,  4, 10, 10,  4,  4,  8, 12, // 76
-     5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
-    12,  8,  4,  4, 10, 10,  4,  4,  8, 12, // 76
-]; // 178
+    2,  2,  2,  2,  6,  6,  2,  2,  2,  2,
+    1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
+    2,  2,  2,  2,  6,  6,  2,  2,  2,  2,
+];
 const KEY_COST_HEX: [u8; 30] = [
-    16, 12,  6,  2,  6,      6,  2,  6, 12, 16, // 84
-       5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
-     8, 10,  6,  2,  8,      8,  2,  6, 10,  8, // 68
-]; // 178
+    3,  4,  2,  2,  4,      4,  2,  2,  4,  3,
+      1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
+    2,  4,  4,  2,  6,      6,  2,  4,  4,  2,
+];
 const KEY_COST_HEX_STAG: [u8; 30] = [
-    14, 12,  8,  4,  4,      4,  4,  8, 12, 14, // 80
-       5,  2,  1,  1,  6,  6,  1,  1,  2,  5, // 30
-    10,  8,  4,  4,  8,      8,  4,  4,  8, 10, // 68
-]; // 178
+    2,  3,  2,  2,  2,      2,  2,  2,  3,  2,
+      1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
+    2,  2,  2,  2,  6,      6,  2,  2,  2,  2,
+];
 const KEY_COST_ANSI: [u8; 30] = [
-    16,  6,  2,  6, 10, 14,  6,  2,  6, 16, // 84
-      5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
-        8, 10,  6,  2,  8,  6,  4,  6, 10,  8, // 68
-]; // 178
+    4,  2,  2,  4,  6, 12,  4,  2,  2,  4,
+     1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
+       2,  4,  4,  2,  9,  3,  2,  4,  4,  2,
+];
 const KEY_COST_ISO: [u8; 30] = [
-     16,  6,  2,  6, 10, 14,  6,  2,  6, 16, // 84
-       5,  2,  1,  1,  4,  4,  1,  1,  2,  5, // 26
-     8, 10,  6,  4,  6,      6,  4,  6, 10,  8, // 68
-]; // 178
+     4,  2,  2,  4,  6, 12,  4,  2,  2,  4,
+      1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
+    2,  4,  4,  2,  3,      3,  2,  4,  4,  2,
+];
