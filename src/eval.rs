@@ -683,9 +683,10 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let bigram_names = ["", "SameKey", "DRolls", "URolls", "LSB1s",
+        let bigram_names = ["", "SameKey", "DRolls", "URolls",
+            "LSB3s (count as 1/3 WLSBs, 2/3 URolls)",
             "LSB2s (count as 1/2 WLSBs, 1/2 URolls)",
-            "LSB3s (count as 1/3 WLSBs, 2/3 URolls)", "Scissors", "SFBs"];
+            "LSB1s", "Scissors", "SFBs"];
         for (vec, name) in self.bigram_lists.iter()
                                .zip(bigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -720,9 +721,9 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         let trigram_names = ["",
             "dSameKey", "shdSameKey (count as Redirects)",
             "dSFBs", "shdSFBs (count as Contorts)", "dDRolls", "dURolls",
-            "dLSB1s", "dLSB2s (count as 1/2 dWLSBs, 1/2 dURolls)",
-            "dLSB3s (count as 1/3 dWLSBs, 2/3 dUROLLS)", "dScissors", "RRolls",
-            "Redirects", "Contortions"];
+            "dLSB3s (count as 1/3 dWLSBs, 2/3 dUROLLS)",
+            "dLSB2s (count as 1/2 dWLSBs, 1/2 dURolls)",
+            "dLSB1s", "dScissors", "RRolls", "Redirects", "Contortions"];
         for (vec, name) in self.trigram_lists.iter()
                                .zip(trigram_names.into_iter())
                                .filter_map(|(vec, name)|
@@ -1224,10 +1225,10 @@ impl KuehlmakModel {
                         } else if f0 != f1 && f1 != f2 && // Reversing direction
                                   ((f2 > f1) ^ (f1 > f0)) {
                             trigram_types[i][j][k] = TRIGRAM_REDIRECT as u8;
-                        } else if (bigram_types[i][j] == BIGRAM_DROLL as u8 ||  // Sequences of two rolls
-                                   bigram_types[i][j] == BIGRAM_UROLL as u8) && // in the same direction
-                                  (bigram_types[j][k] == BIGRAM_DROLL as u8 ||
-                                   bigram_types[j][k] == BIGRAM_UROLL as u8) {
+                        } else if bigram_types[i][j] >= BIGRAM_DROLL as u8 && // Sequences of two rolls
+                                  bigram_types[i][j] <  BIGRAM_LSB1  as u8 && // in the same direction
+                                  bigram_types[j][k] >= BIGRAM_DROLL as u8 &&
+                                  bigram_types[j][k] <  BIGRAM_LSB1  as u8 {
                             trigram_types[i][j][k] = TRIGRAM_RROLL as u8;
                         }
                         // What's left are non-reversing same-hand trigrams
@@ -1348,9 +1349,9 @@ const BIGRAM_ALTERNATE:  usize = 0;
 const BIGRAM_SAMEKEY:    usize = 1;
 const BIGRAM_DROLL:      usize = 2;
 const BIGRAM_UROLL:      usize = 3;
-const BIGRAM_LSB1:       usize = 4;
+const BIGRAM_LSB3:       usize = 4;
 const BIGRAM_LSB2:       usize = 5;
-const BIGRAM_LSB3:       usize = 6;
+const BIGRAM_LSB1:       usize = 6;
 const BIGRAM_SCISSOR:    usize = 7;
 const BIGRAM_SFB:        usize = 8;
 const BIGRAM_NUM_TYPES:  usize = 9;
@@ -1362,9 +1363,9 @@ const TRIGRAM_D_SFB:       usize = 3;
 const TRIGRAM_SHD_SFB:     usize = 4;
 const TRIGRAM_D_DROLL:     usize = 5;
 const TRIGRAM_D_UROLL:     usize = 6;
-const TRIGRAM_D_LSB1:      usize = 7;
+const TRIGRAM_D_LSB3:      usize = 7;
 const TRIGRAM_D_LSB2:      usize = 8;
-const TRIGRAM_D_LSB3:      usize = 9;
+const TRIGRAM_D_LSB1:      usize = 9;
 const TRIGRAM_D_SCISSOR:   usize = 10;
 const TRIGRAM_RROLL:       usize = 11;
 const TRIGRAM_REDIRECT:    usize = 12;
