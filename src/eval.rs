@@ -562,62 +562,65 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
 
         let key_space = match self.model.params.board_type {
                 KeyboardType::Ortho | KeyboardType::ColStag =>
-                    [["", "  |  ", ""]; 3],
+                    [[" ", "|||  ", " | ", " | ", "  |||", " "]; 3],
                 KeyboardType::Hex | KeyboardType::HexStag  =>
-                    [["", "  |  ", ""],
-                     ["  ", "|", "  "],
-                     ["", "  |  ", ""]],
+                    [["", " /// ", "  |  ", "  |  ", " \\\\\\ ", ""],
+                     ["  ", "/// /", "Λ",     " ", "\\ \\\\\\", "  "],
+                     ["", "/// /", "/   \\", "     ", "\\ \\\\\\", ""]],
                 KeyboardType::ANSI =>
-                    [[" ", "", "    "],
-                     ["  ", "", "   "],
-                     ["    ", "", " "]],
+                    [[" ", "\\\\\\  ", "/", "\\", "  \\\\\\", "   "],
+                     ["  ", "\\\\\\  ", "\\", " ", "\\ \\\\\\", "  "],
+                     ["    ", "\\\\\\  ", "\\", " ", "\\ \\\\\\", ""]],
                 KeyboardType::ISO =>
-                    [[" ", " ", "   "],
-                     ["  ", " ", "  "],
-                     ["", "     ", ""]],
+                    [[" ", "\\\\\\  ", "/",  "\\", "  \\\\\\", "   "],
+                     ["  ", "/// /", "\\",     " ", "\\ \\\\\\", "  "],
+                     ["", "/// /", "/   \\", "     ", "\\ \\\\\\", ""]],
             };
 
         let mut layout_iter = self.layout().into_iter();
-        let mut write_5keys = |w: &mut W|
+        let mut write_5keys = |w: &mut W, left: bool|
             layout_iter.by_ref().take(5)
                        .map(|[a, b]| match b.to_lowercase().next() {
-                           Some(l) if l == a => write!(w, "[ {}]", a),
-                           _                 => write!(w, "[{}{}]", a, b),
+                           Some(l) if l == a && left => write!(w, "[{}] ", b),
+                           Some(l) if l == a         => write!(w, " [{}]", b),
+                           _                         => write!(w, "[{}{}]", a, b),
                        }).fold(Ok(()), io::Result::and);
-        let mut write_key_row = |w: &mut W, [prefix,sep,suffix]: [&str; 3]| {
+        let mut write_key_row = |w: &mut W, [prefix,_,sep,_,_,suffix]: [&str; 6]| {
             w.write_all(prefix.as_bytes())?;
-            write_5keys(w)?;
+            write_5keys(w, true)?;
             w.write_all(sep.as_bytes())?;
-            write_5keys(w)?;
+            write_5keys(w, false)?;
             writeln!(w, "{}", suffix)
         };
 
         let mut heat_iter = self.heatmap.iter();
-        let mut write_5heats = |w: &mut W|
-            heat_iter.by_ref().take(5)
-                     .map(|&h| write!(w, "{:3.0} ", h as f64 * norm))
-                     .fold(Ok(()), io::Result::and);
-        let mut write_heat_row = |w: &mut W, [prefix,sep,suffix]: [&str; 3]| {
+        let mut write_5heats = |w: &mut W, sep: &str, left: bool|
+            heat_iter.by_ref().take(5).zip(sep.chars())
+                     .map(|(&h, s)| match left {
+                         true  => write!(w, "{0:^3.0}{1}", h as f64 * norm, s),
+                         false => write!(w, "{1}{0:^3.0}", h as f64 * norm, s)
+                     }).fold(Ok(()), io::Result::and);
+        let mut write_heat_row = |w: &mut W, [prefix,lsep,_,sep,rsep,suffix]: [&str; 6]| {
             w.write_all(prefix.as_bytes())?;
-            write_5heats(w)?;
+            write_5heats(w, lsep, true)?;
             w.write_all(sep.as_bytes())?;
-            write_5heats(w)?;
+            write_5heats(w, rsep, false)?;
             writeln!(w, "{}", suffix)
         };
 
         let write_ngram_u = |w: &mut W, g: &[u64; 2]| {
             let ind = if g[0]     >= g[1] * 3 {'«'}  // worse than 75:25
-                 else if g[0] * 2 >= g[1] * 3 {'<'}  // 75:25 - 60:40
-                 else if g[0] * 3 >  g[1] * 2 {'^'}  // 60:40 - 40:60
-                 else if g[0] * 3 >  g[1]     {'>'}  // 40:60 - 25:75
+                 else if g[0] * 2 >= g[1] * 3 {'‹'}  // 75:25 - 60:40
+                 else if g[0] * 3 >  g[1] * 2 {' '}  // 60:40 - 40:60
+                 else if g[0] * 3 >  g[1]     {'›'}  // 40:60 - 25:75
                  else                         {'»'}; // worse than 25:75
             write!(w, "{:5.1}{:.1}", (g[0] + g[1]) as f64 * norm, ind)
         };
         let write_ngram_f = |w: &mut W, g: &[f64; 2]| {
             let ind = if g[0]       >= g[1] * 3.0 {'«'}
-                 else if g[0] * 2.0 >= g[1] * 3.0 {'<'}
-                 else if g[0] * 3.0 >  g[1] * 2.0 {'^'}
-                 else if g[0] * 3.0 >  g[1]       {'>'}
+                 else if g[0] * 2.0 >= g[1] * 3.0 {'‹'}
+                 else if g[0] * 3.0 >  g[1] * 2.0 {' '}
+                 else if g[0] * 3.0 >  g[1]       {'›'}
                  else                             {'»'};
             write!(w, "{:5.1}{:.1}", (g[0] + g[1]) * norm, ind)
         };
