@@ -515,17 +515,17 @@ pub struct KuehlmakScores<'a> {
     token_keymap: Vec<u8>,
     strokes: u64,
     heatmap: [u64; 30],
-    bigram_counts: [u64; BIGRAM_NUM_TYPES],
-    trigram_counts: [u64; TRIGRAM_NUM_TYPES],
+    bigram_counts: [[u64; 2]; BIGRAM_NUM_TYPES],
+    trigram_counts: [[u64; 2]; TRIGRAM_NUM_TYPES],
     bigram_lists: [Option<Vec<(Bigram, u64)>>; BIGRAM_NUM_TYPES],
     trigram_lists: [Option<Vec<(Trigram, u64)>>; TRIGRAM_NUM_TYPES],
     finger_travel: [f64; 8],
-    urolls: f64,
-    wlsbs: f64,
-    d_urolls: f64,
-    d_wlsbs: f64,
-    redirects: u64,
-    contorts: u64,
+    urolls: [f64; 2],
+    wlsbs: [f64; 2],
+    d_urolls: [f64; 2],
+    d_wlsbs: [f64; 2],
+    redirects: [u64; 2],
+    contorts: [u64; 2],
     effort: f64,
     travel: f64,
     imbalance: f64,
@@ -605,6 +605,23 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             writeln!(w, "{}", suffix)
         };
 
+        let write_ngram_u = |w: &mut W, g: &[u64; 2]| {
+            let ind = if g[0]     >= g[1] * 3 {'«'}  // worse than 75:25
+                 else if g[0] * 2 >= g[1] * 3 {'<'}  // 75:25 - 60:40
+                 else if g[0] * 3 >  g[1] * 2 {'^'}  // 60:40 - 40:60
+                 else if g[0] * 3 >  g[1]     {'>'}  // 40:60 - 25:75
+                 else                         {'»'}; // worse than 25:75
+            write!(w, "{:5.1}{:.1}", (g[0] + g[1]) as f64 * norm, ind)
+        };
+        let write_ngram_f = |w: &mut W, g: &[f64; 2]| {
+            let ind = if g[0]       >= g[1] * 3.0 {'«'}
+                 else if g[0] * 2.0 >= g[1] * 3.0 {'<'}
+                 else if g[0] * 3.0 >  g[1] * 2.0 {'^'}
+                 else if g[0] * 3.0 >  g[1]       {'>'}
+                 else                             {'»'};
+            write!(w, "{:5.1}{:.1}", (g[0] + g[1]) * norm, ind)
+        };
+
         write!(w, "Effort {:6.4} Imbalance {:6.2}%   |",
                self.effort, self.imbalance * 100.0)?;
         write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}=  {:3.0} |",
@@ -630,30 +647,32 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         write!(w, "    DRoll URoll  WLSB Scissor SFB |")?;
         write_key_row(w, key_space[0])?;
 
-        write!(w, " AB {:5.1} {:5.1} {:5.1} {:5.1} {:5.1} |",
-               self.bigram_counts[BIGRAM_DROLL] as f64 * norm,
-               self.urolls * norm,
-               self.wlsbs * norm,
-               self.bigram_counts[BIGRAM_SCISSOR] as f64 * norm,
-               self.bigram_counts[BIGRAM_SFB] as f64 * norm)?;
+        write!(w, " AB ")?;
+        write_ngram_u(w, &self.bigram_counts[BIGRAM_DROLL])?;
+        write_ngram_f(w, &self.urolls)?;
+        write_ngram_f(w, &self.wlsbs)?;
+        write_ngram_u(w, &self.bigram_counts[BIGRAM_SCISSOR])?;
+        write_ngram_u(w, &self.bigram_counts[BIGRAM_SFB])?;
+        write!(w, "|")?;
         write_heat_row(w, key_space[0])?;
 
-        write!(w, "A_B {:5.1} {:5.1} {:5.1} {:5.1} {:5.1} |",
-               self.trigram_counts[TRIGRAM_D_DROLL] as f64 * norm,
-               self.d_urolls * norm,
-               self.d_wlsbs * norm,
-               self.trigram_counts[TRIGRAM_D_SCISSOR] as f64 * norm,
-               self.trigram_counts[TRIGRAM_D_SFB] as f64 * norm)?;
+        write!(w, "A_B ")?;
+        write_ngram_u(w, &self.trigram_counts[TRIGRAM_D_DROLL])?;
+        write_ngram_f(w, &self.d_urolls)?;
+        write_ngram_f(w, &self.d_wlsbs)?;
+        write_ngram_u(w, &self.trigram_counts[TRIGRAM_D_SCISSOR])?;
+        write_ngram_u(w, &self.trigram_counts[TRIGRAM_D_SFB])?;
+        write!(w, "|")?;
         write_key_row(w, key_space[1])?;
 
         write!(w, "    RRoll Redir Contort  Runs L:R |")?;
         write_heat_row(w, key_space[1])?;
 
-        write!(w, "ABC {:5.1} {:5.1} {:5.1}   {:4.2}:{:4.2} |",
-               self.trigram_counts[TRIGRAM_RROLL] as f64 * norm,
-               self.redirects as f64 * norm,
-               self.contorts as f64 * norm,
-               self.hand_runs[0], self.hand_runs[1])?;
+        write!(w, "ABC ")?;
+        write_ngram_u(w, &self.trigram_counts[TRIGRAM_RROLL])?;
+        write_ngram_u(w, &self.redirects)?;
+        write_ngram_u(w, &self.contorts)?;
+        write!(w, "  {:4.2}:{:4.2} |", self.hand_runs[0], self.hand_runs[1])?;
         write_key_row(w, key_space[2])?;
 
         write!(w, "Score+Con{:7.4}{:+8.4} ={:7.4} |",
@@ -769,19 +788,19 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             self.effort,
             self.travel,
             self.imbalance,
-            self.bigram_counts[BIGRAM_DROLL] as f64,
-            self.urolls,
-            self.wlsbs,
-            self.bigram_counts[BIGRAM_SCISSOR] as f64,
-            self.bigram_counts[BIGRAM_SFB] as f64,
-            self.trigram_counts[TRIGRAM_D_DROLL] as f64,
-            self.d_urolls,
-            self.d_wlsbs,
-            self.trigram_counts[TRIGRAM_D_SCISSOR] as f64,
-            self.trigram_counts[TRIGRAM_D_SFB] as f64,
-            self.trigram_counts[TRIGRAM_RROLL] as f64,
-            self.redirects as f64,
-            self.contorts as f64,
+            Self::get_lr_score_u(self.bigram_counts[BIGRAM_DROLL]),
+            Self::get_lr_score_f(self.urolls),
+            Self::get_lr_score_f(self.wlsbs),
+            Self::get_lr_score_u(self.bigram_counts[BIGRAM_SCISSOR]),
+            Self::get_lr_score_u(self.bigram_counts[BIGRAM_SFB]),
+            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_D_DROLL]),
+            Self::get_lr_score_f(self.d_urolls),
+            Self::get_lr_score_f(self.d_wlsbs),
+            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_D_SCISSOR]),
+            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_D_SFB]),
+            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_RROLL]),
+            Self::get_lr_score_u(self.redirects),
+            Self::get_lr_score_u(self.contorts),
         ]
     }
     fn get_score_names() -> BTreeMap<String, usize> {
@@ -808,6 +827,15 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
     }
 }
 
+impl<'a> KuehlmakScores<'a> {
+    fn get_lr_score_f(c: [f64; 2]) -> f64 {
+        (c[0].powi(2) + c[1].powi(2)).mul(2.0).sqrt()
+    }
+    fn get_lr_score_u(c: [u64; 2]) -> f64 {
+        Self::get_lr_score_f([c[0] as f64, c[1] as f64])
+    }
+}
+
 impl<'a> EvalModel<'a> for KuehlmakModel {
     type Scores = KuehlmakScores<'a>;
 
@@ -822,17 +850,17 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             token_keymap: Vec::new(),
             strokes: 0,
             heatmap: [0; 30],
-            bigram_counts: [0; BIGRAM_NUM_TYPES],
-            trigram_counts: [0; TRIGRAM_NUM_TYPES],
+            bigram_counts: [[0; 2]; BIGRAM_NUM_TYPES],
+            trigram_counts: [[0; 2]; TRIGRAM_NUM_TYPES],
             bigram_lists: [None, bl(), bl(), bl(), bl(), bl(), bl(), bl(), bl()],
             trigram_lists: [None, tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl()],
             finger_travel: [0.0; 8],
-            urolls: 0.0,
-            wlsbs: 0.0,
-            d_urolls: 0.0,
-            d_wlsbs: 0.0,
-            redirects: 0,
-            contorts: 0,
+            urolls: [0.0; 2],
+            wlsbs: [0.0; 2],
+            d_urolls: [0.0; 2],
+            d_wlsbs: [0.0; 2],
+            redirects: [0; 2],
+            contorts: [0; 2],
             effort: 0.0,
             travel: 0.0,
             imbalance: 0.0,
@@ -861,27 +889,31 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             (self.params.weights.travel, scores.travel),
             (self.params.weights.imbalance, scores.imbalance),
             (self.params.weights.drolls / strokes,
-             scores.bigram_counts[BIGRAM_DROLL] as f64),
-            (self.params.weights.urolls / strokes, scores.urolls),
-            (self.params.weights.wlsbs / strokes, scores.wlsbs),
+             KuehlmakScores::get_lr_score_u(scores.bigram_counts[BIGRAM_DROLL])),
+            (self.params.weights.urolls / strokes,
+             KuehlmakScores::get_lr_score_f(scores.urolls)),
+            (self.params.weights.wlsbs / strokes,
+             KuehlmakScores::get_lr_score_f(scores.wlsbs)),
             (self.params.weights.scissors / strokes,
-             scores.bigram_counts[BIGRAM_SCISSOR] as f64),
+             KuehlmakScores::get_lr_score_u(scores.bigram_counts[BIGRAM_SCISSOR])),
             (self.params.weights.sfbs / strokes,
-             scores.bigram_counts[BIGRAM_SFB] as f64),
+             KuehlmakScores::get_lr_score_u(scores.bigram_counts[BIGRAM_SFB])),
             (self.params.weights.d_drolls / strokes,
-             scores.trigram_counts[TRIGRAM_D_DROLL] as f64),
-            (self.params.weights.d_urolls / strokes, scores.d_urolls),
-            (self.params.weights.d_wlsbs / strokes, scores.d_wlsbs),
+             KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_D_DROLL])),
+            (self.params.weights.d_urolls / strokes,
+             KuehlmakScores::get_lr_score_f(scores.d_urolls)),
+            (self.params.weights.d_wlsbs / strokes,
+             KuehlmakScores::get_lr_score_f(scores.d_wlsbs)),
             (self.params.weights.d_scissors / strokes,
-             scores.trigram_counts[TRIGRAM_D_SCISSOR] as f64),
+             KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_D_SCISSOR])),
             (self.params.weights.d_sfbs / strokes,
-             scores.trigram_counts[TRIGRAM_D_SFB] as f64),
+             KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_D_SFB])),
             (self.params.weights.rrolls / strokes,
-             scores.trigram_counts[TRIGRAM_RROLL] as f64),
+             KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_RROLL])),
             (self.params.weights.redirects / strokes,
-             scores.redirects as f64),
+             KuehlmakScores::get_lr_score_u(scores.redirects)),
             (self.params.weights.contorts / strokes,
-             scores.contorts as f64),
+             KuehlmakScores::get_lr_score_u(scores.contorts)),
         ].into_iter().map(|(score, weight)| score * weight).sum::<f64>();
 
         scores
@@ -972,7 +1004,7 @@ impl KuehlmakModel {
 
             let bigram_type = self.bigram_types[k0][k1] as usize;
 
-            scores.bigram_counts[bigram_type] += count;
+            scores.bigram_counts[bigram_type][k0 % 10 / 5] += count;
             if let Some(v) = scores.bigram_lists[bigram_type].as_mut() {
                 v.push((bigram, count))
             }
@@ -990,7 +1022,7 @@ impl KuehlmakModel {
                 same_hand[k0 % 10 / 5] += count;
             }
         }
-        for count in scores.bigram_counts.iter_mut() {
+        for count in scores.bigram_counts.iter_mut().flatten() {
             *count = *count * ts.total_bigrams() / total;
         }
         for (travel, orig) in scores.finger_travel.iter_mut()
@@ -999,12 +1031,18 @@ impl KuehlmakModel {
         }
         let orig_finger_travel = scores.finger_travel;
 
-        scores.urolls = scores.bigram_counts[BIGRAM_UROLL] as f64 +
-                        scores.bigram_counts[BIGRAM_LSB2] as f64 / 2.0 +
-                        scores.bigram_counts[BIGRAM_LSB3] as f64 * 2.0 / 3.0;
-        scores.wlsbs = scores.bigram_counts[BIGRAM_LSB1] as f64 +
-                       scores.bigram_counts[BIGRAM_LSB2] as f64 / 2.0 +
-                       scores.bigram_counts[BIGRAM_LSB3] as f64 / 3.0;
+        scores.urolls = [scores.bigram_counts[BIGRAM_UROLL][0] as f64 +
+                         scores.bigram_counts[BIGRAM_LSB2][0] as f64 / 2.0 +
+                         scores.bigram_counts[BIGRAM_LSB3][0] as f64 * 2.0 / 3.0,
+                         scores.bigram_counts[BIGRAM_UROLL][1] as f64 +
+                         scores.bigram_counts[BIGRAM_LSB2][1] as f64 / 2.0 +
+                         scores.bigram_counts[BIGRAM_LSB3][1] as f64 * 2.0 / 3.0];
+        scores.wlsbs = [scores.bigram_counts[BIGRAM_LSB1][0] as f64 +
+                        scores.bigram_counts[BIGRAM_LSB2][0] as f64 / 2.0 +
+                        scores.bigram_counts[BIGRAM_LSB3][0] as f64 / 3.0,
+                        scores.bigram_counts[BIGRAM_LSB1][1] as f64 +
+                        scores.bigram_counts[BIGRAM_LSB2][1] as f64 / 2.0 +
+                        scores.bigram_counts[BIGRAM_LSB3][1] as f64 / 3.0];
 
         // Estimate same-hand runs as expected value of the geometic
         // distribution, which is 1 / "probability of switching hands".
@@ -1033,7 +1071,7 @@ impl KuehlmakModel {
 
             let trigram_type = self.trigram_types[k0][k1][k2] as usize;
 
-            scores.trigram_counts[trigram_type] += count;
+            scores.trigram_counts[trigram_type][k0 % 10 / 5] += count;
             if let Some(v) = scores.trigram_lists[trigram_type].as_mut() {
                 v.push((trigram, count))
             }
@@ -1048,7 +1086,7 @@ impl KuehlmakModel {
                     (props.d_rel[k0]*2.0 - props.d_abs) as f64 * count as f64;
             }
         }
-        for count in scores.trigram_counts.iter_mut() {
+        for count in scores.trigram_counts.iter_mut().flatten() {
             *count = *count * ts.total_trigrams() / total;
         }
         for (travel, orig) in scores.finger_travel.iter_mut()
@@ -1056,16 +1094,26 @@ impl KuehlmakModel {
             *travel += (*travel - orig) * (1.0 - precision);
         }
 
-        scores.d_urolls = scores.trigram_counts[TRIGRAM_D_UROLL] as f64 +
-                          scores.trigram_counts[TRIGRAM_D_LSB2] as f64 / 2.0 +
-                          scores.trigram_counts[TRIGRAM_D_LSB3] as f64 * 2.0 / 3.0;
-        scores.d_wlsbs = scores.trigram_counts[TRIGRAM_D_LSB1] as f64 +
-                         scores.trigram_counts[TRIGRAM_D_LSB2] as f64 / 2.0 +
-                         scores.trigram_counts[TRIGRAM_D_LSB3] as f64 / 3.0;
-        scores.redirects = scores.trigram_counts[TRIGRAM_REDIRECT] +
-                           scores.trigram_counts[TRIGRAM_SHD_SAMEKEY];
-        scores.contorts = scores.trigram_counts[TRIGRAM_CONTORT] +
-                          scores.trigram_counts[TRIGRAM_SHD_SFB];
+        scores.d_urolls = [scores.trigram_counts[TRIGRAM_D_UROLL][0] as f64 +
+                           scores.trigram_counts[TRIGRAM_D_LSB2][0] as f64 / 2.0 +
+                           scores.trigram_counts[TRIGRAM_D_LSB3][0] as f64 * 2.0 / 3.0,
+                           scores.trigram_counts[TRIGRAM_D_UROLL][1] as f64 +
+                           scores.trigram_counts[TRIGRAM_D_LSB2][1] as f64 / 2.0 +
+                           scores.trigram_counts[TRIGRAM_D_LSB3][1] as f64 * 2.0 / 3.0];
+        scores.d_wlsbs = [scores.trigram_counts[TRIGRAM_D_LSB1][0] as f64 +
+                          scores.trigram_counts[TRIGRAM_D_LSB2][0] as f64 / 2.0 +
+                          scores.trigram_counts[TRIGRAM_D_LSB3][0] as f64 / 3.0,
+                          scores.trigram_counts[TRIGRAM_D_LSB1][1] as f64 +
+                          scores.trigram_counts[TRIGRAM_D_LSB2][1] as f64 / 2.0 +
+                          scores.trigram_counts[TRIGRAM_D_LSB3][1] as f64 / 3.0];
+        scores.redirects = [scores.trigram_counts[TRIGRAM_REDIRECT][0] +
+                            scores.trigram_counts[TRIGRAM_SHD_SAMEKEY][0],
+                            scores.trigram_counts[TRIGRAM_REDIRECT][1] +
+                            scores.trigram_counts[TRIGRAM_SHD_SAMEKEY][1]];
+        scores.contorts = [scores.trigram_counts[TRIGRAM_CONTORT][0] +
+                           scores.trigram_counts[TRIGRAM_SHD_SFB][0],
+                           scores.trigram_counts[TRIGRAM_CONTORT][1] +
+                           scores.trigram_counts[TRIGRAM_SHD_SFB][1]];
     }
 
     fn score_travel(&self, scores: &mut KuehlmakScores) {
