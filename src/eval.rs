@@ -345,23 +345,23 @@ impl Default for KuehlmakWeights {
             index_finger:  1,
             middle_finger: 1,
             ring_finger:   2,
-            pinky_finger:  5,
+            pinky_finger:  6,
             effort:        0.1,
             travel:        1.0,
             imbalance:     0.05,
-            drolls:       -0.5, // better than hand alternation
-            urolls:        0.0, // same as alternation (which is not scored)
+            drolls:       -0.5, // slightly better than hand alternation
+            urolls:        0.5, // slightly worse than alternation
             wlsbs:         1.0,
-            scissors:      5.0,
-            sfbs:          5.0,
+            scissors:     10.0,
+            sfbs:         10.0,
             d_drolls:     -0.5,
-            d_urolls:      0.0,
+            d_urolls:      0.5,
             d_wlsbs:       1.0,
-            d_scissors:    5.0,
-            d_sfbs:        5.0,
+            d_scissors:   10.0,
+            d_sfbs:       10.0,
             rrolls:       -0.5,
             redirects:     5.0,
-            contorts:      5.0,
+            contorts:     10.0,
         }
     }
 }
@@ -548,17 +548,27 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
     where W: IoWrite {
         let norm = 1000.0 / self.strokes as f64;
         let mut fh = [0u64; 8];
+        let (mut raw_effort, mut raw_left, mut raw_right) = (0u64, 0u64, 0u64);
         for (&count, props) in
                 self.heatmap.iter().zip(self.model.key_props.iter()) {
             fh[props.finger as usize] += count;
+            let cost = count * props.cost as u64;
+            match props.hand {
+                0 => raw_left += cost,
+                1 => raw_right += cost,
+                _ => {}
+            }
+            raw_effort += cost;
         }
+        let raw_effort = raw_effort as f64 * norm;
+
         let mut fh_iter = fh.iter().map(|&h| h as f64 * norm);
         let mut hh_iter = fh.chunks(4)
                             .map(|s| s.iter().sum::<u64>() as f64 * norm);
         let mut ft_iter = self.finger_travel.iter().map(|&t| t * norm);
         let mut ht_iter = self.finger_travel.chunks(4)
                               .map(|s| s.iter().sum::<f64>() * norm);
-        let travel = self.finger_travel.iter().sum::<f64>() * norm;
+        let raw_travel = self.finger_travel.iter().sum::<f64>() * norm;
 
         let key_space = match self.model.params.board_type {
                 KeyboardType::Ortho | KeyboardType::ColStag =>
@@ -625,24 +635,25 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             write!(w, "{:5.1}{:.1}", (g[0] + g[1]) * norm, ind)
         };
 
-        write!(w, "Effort {:6.4} Imbalance {:6.2}%   |",
-               self.effort, self.imbalance * 100.0)?;
-        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}=  {:3.0} |",
+        write!(w, "Effort {:6.1} ({:6.1}) {:+7.2}% {} |",
+               self.effort * 1000.0, raw_effort, self.imbalance * 100.0,
+               if raw_left > raw_right {'<'} else {'>'})?;
+        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}= {:4.0} |",
                fh_iter.next().unwrap(), fh_iter.next().unwrap(),
                fh_iter.next().unwrap(), fh_iter.next().unwrap(),
                hh_iter.next().unwrap())?;
-        writeln!(w, " {:3.0} ={:3.0}+{:3.0}+{:3.0}+{:3.0} ",
+        writeln!(w, " {:4.0} ={:3.0}+{:3.0}+{:3.0}+{:3.0}",
                  hh_iter.next().unwrap(),
                  fh_iter.next().unwrap(), fh_iter.next().unwrap(),
                  fh_iter.next().unwrap(), fh_iter.next().unwrap())?;
 
-        write!(w, "Travel {:6.4} ({:7.2})           |",
-               self.travel, travel)?;
+        write!(w, "Travel {:6.1} ({:6.1})            |",
+               self.travel * 1000.0, raw_travel)?;
         write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}= {:4.0} |",
                ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                ht_iter.next().unwrap())?;
-        writeln!(w, "{:4.0} ={:3.0}+{:3.0}+{:3.0}+{:3.0} ",
+        writeln!(w, " {:4.0} ={:3.0}+{:3.0}+{:3.0}+{:3.0}",
                  ht_iter.next().unwrap(),
                  ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                  ft_iter.next().unwrap(), ft_iter.next().unwrap())?;
@@ -678,8 +689,9 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         write!(w, "  {:4.2}:{:4.2} |", self.hand_runs[0], self.hand_runs[1])?;
         write_key_row(w, key_space[2])?;
 
-        write!(w, "Score+Con{:7.4}{:+8.4} ={:7.4} |",
-               self.total, self.constraints, self.total + self.constraints)?;
+        write!(w, "Score+Con{:7.1}{:+8.1} ={:7.1} |",
+               self.total * 1000.0, self.constraints * 1000.0,
+               (self.total + self.constraints) * 1000.0)?;
         write_heat_row(w, key_space[2])?;
 
         Ok(())
@@ -951,7 +963,9 @@ impl KuehlmakModel {
         // This brings the numbers into a more manageable range and
         // increases sensitivity of the fitness function. In an imbalanced
         // keyboard layout, the effort will be dominated by the most
-        // heavily overused fingers.
+        // heavily overused fingers. The result is normalized so that a
+        // balanced layout produces the same score as summing up effort
+        // per finger.
         let mut finger_cost = [0.0; 8];
         for (&count, props) in
                 scores.heatmap.iter().zip(self.key_props.iter()) {
@@ -960,7 +974,7 @@ impl KuehlmakModel {
         }
         scores.effort = finger_cost.into_iter()
                                    .map(|c| c * c)
-                                   .sum::<f64>()
+                                   .sum::<f64>().mul(8.0)
                                    .sqrt() / scores.strokes as f64;
     }
 
