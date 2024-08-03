@@ -246,7 +246,7 @@ struct KeyProps {
 }
 
 pub trait EvalScores {
-    fn write<W>(&self, w: &mut W) -> io::Result<()>
+    fn write<W>(&self, w: &mut W, show_scores: bool) -> io::Result<()>
         where W: IoWrite;
     fn write_extra<W>(&self, w: &mut W) -> io::Result<()>
         where W: IoWrite;
@@ -256,7 +256,7 @@ pub trait EvalScores {
     fn get_scores(&self) -> Vec<f64>;
     fn get_score_names() -> BTreeMap<String, usize>;
 
-    fn write_to_db(&self, dir: &Path) -> io::Result<()> {
+    fn write_to_db(&self, dir: &Path, show_scores: bool) -> io::Result<()> {
         let path: PathBuf =
             [dir, &layout_to_filename(&self.layout())].iter().collect();
         if let Ok(file) = OpenOptions::new()
@@ -267,7 +267,7 @@ pub trait EvalScores {
             let mut w = BufWriter::new(file);
 
             w.write_all(layout_to_str(&self.layout()).as_bytes())?;
-            self.write(&mut w)?;
+            self.write(&mut w, show_scores)?;
             self.write_extra(&mut w)?;
             write!(w, "#")?;
 
@@ -544,15 +544,18 @@ pub struct KuehlmakModel {
 }
 
 impl<'a> EvalScores for KuehlmakScores<'a> {
-    fn write<W>(&self, w: &mut W) -> io::Result<()>
+    fn write<W>(&self, w: &mut W, show_scores: bool) -> io::Result<()>
     where W: IoWrite {
         let norm = 1000.0 / self.strokes as f64;
         let mut fh = [0u64; 8];
         let (mut raw_effort, mut raw_left, mut raw_right) = (0u64, 0u64, 0u64);
         for (&count, props) in
                 self.heatmap.iter().zip(self.model.key_props.iter()) {
-            fh[props.finger as usize] += count;
             let cost = count * props.cost as u64;
+            fh[props.finger as usize] += match show_scores {
+                false => count,
+                true  => cost,
+            };
             match props.hand {
                 0 => raw_left += cost,
                 1 => raw_right += cost,
@@ -603,10 +606,11 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             writeln!(w, "{}", suffix)
         };
 
-        let mut heat_iter = self.heatmap.iter();
+        let mut heat_iter = self.heatmap.iter().zip(self.model.key_props.iter())
+                .map(|(&h, &props)| if show_scores {h * props.cost as u64} else {h});
         let mut write_5heats = |w: &mut W, sep: &str, left: bool|
             heat_iter.by_ref().take(5).zip(sep.chars())
-                     .map(|(&h, s)| match left {
+                     .map(|(h, s)| match left {
                          true  => write!(w, "{0:^3.0}{1}", h as f64 * norm, s),
                          false => write!(w, "{1}{0:^3.0}", h as f64 * norm, s)
                      }).fold(Ok(()), io::Result::and);
@@ -624,7 +628,11 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                  else if g[0] * 3 >  g[1] * 2 {' '}  // 60:40 - 40:60
                  else if g[0] * 3 >  g[1]     {'›'}  // 40:60 - 25:75
                  else                         {'»'}; // worse than 25:75
-            write!(w, "{:5.1}{:.1}", (g[0] + g[1]) as f64 * norm, ind)
+            let val = match show_scores {
+                false => (g[0] + g[1]) as f64,
+                true  => (((g[0]*g[0] + g[1]*g[1]) * 2) as f64).sqrt(),
+            } * norm;
+            write!(w, "{:5.1}{}", val, ind)
         };
         let write_ngram_f = |w: &mut W, g: &[f64; 2]| {
             let ind = if g[0]       >= g[1] * 3.0 {'«'}
@@ -632,7 +640,11 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                  else if g[0] * 3.0 >  g[1] * 2.0 {' '}
                  else if g[0] * 3.0 >  g[1]       {'›'}
                  else                             {'»'};
-            write!(w, "{:5.1}{:.1}", (g[0] + g[1]) * norm, ind)
+            let val = match show_scores {
+                false => g[0] + g[1],
+                true  => ((g[0].powi(2) + g[1].powi(2)) * 2.0).sqrt(),
+            } * norm;
+            write!(w, "{:5.1}{}", val, ind)
         };
 
         write!(w, "Effort {:6.1} ({:6.1}) {:+7.2}% {} |",

@@ -64,7 +64,9 @@ fn config_from_file<P>(path: P) -> Config
     // Change current directory to make relative paths in the config behave
     let prev_dir = env::current_dir().expect("Failed to get current dir");
     if let Some(dir) = path.as_ref().parent() {
-        env::set_current_dir(dir).expect("Failed to set current dir");
+        if dir != Path::new("") {
+            env::set_current_dir(dir).expect("Failed to set current dir");
+        }
     }
     let mut config: Config = toml::from_str(&c).unwrap_or_else(|e| {
         eprintln!("Failed to parse config file '{}': {}",
@@ -154,6 +156,7 @@ fn anneal_command(sub_m: &ArgMatches) {
         }
     };
     let progress = sub_m.is_present("progress");
+    let show_scores = sub_m.is_present("show_scores");
 
     let jobs: usize = match sub_m.value_of("jobs") {
         Some(number) => number.parse().unwrap_or_else(|e| {
@@ -190,7 +193,7 @@ fn anneal_command(sub_m: &ArgMatches) {
                 if progress {
                     let mut w = Vec::new();
                     anneal.write_stats(&mut w).unwrap();
-                    s.write(&mut w).unwrap();
+                    s.write(&mut w, show_scores).unwrap();
                     // VT100: cursor up 9 rows
                     write!(&mut w, "\x1b[9A").unwrap();
                     tx.send(w).unwrap();
@@ -201,10 +204,10 @@ fn anneal_command(sub_m: &ArgMatches) {
 
             let mut w = Vec::new();
             writeln!(&mut w).unwrap();
-            scores.write(&mut w).unwrap();
+            scores.write(&mut w, show_scores).unwrap();
             tx.send(w).unwrap();
 
-            scores.write_to_db(&dir).unwrap();
+            scores.write_to_db(&dir, show_scores).unwrap();
         });
 
         // Process messages until the queue drops below a threshold. This
@@ -237,6 +240,7 @@ fn eval_command(sub_m: &ArgMatches) {
     // different alphabets.
 
     let verbose = sub_m.is_present("verbose");
+    let show_scores = sub_m.is_present("show_scores");
 
     let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
     let stdout = &mut io::stdout();
@@ -247,7 +251,7 @@ fn eval_command(sub_m: &ArgMatches) {
         let scores = kuehlmak_model.eval_layout(&layout, &text, 1.0);
 
         println!("=== {} ===================", filename);
-        scores.write(stdout).unwrap();
+        scores.write(stdout, show_scores).unwrap();
         if verbose {
             scores.write_extra(stdout).unwrap();
         }
@@ -331,6 +335,7 @@ fn rank_command(sub_m: &ArgMatches) {
             process::exit(1);
         }
     }
+    let show_scores = sub_m.is_present("show_scores");
 
     // Sort scores by cumulative ranking
     let mut ranked_scores: Vec<_> = scores.iter().collect();
@@ -354,7 +359,7 @@ fn rank_command(sub_m: &ArgMatches) {
             }
         }
         println!("===");
-        s.write(stdout).unwrap();
+        s.write(stdout, show_scores).unwrap();
         println!();
     }
 }
@@ -439,6 +444,8 @@ fn main() {
                 "Number of jobs (threads) to run concurrently [1]")
             (@arg progress: -p --progress
                 "Print layouts in progress")
+            (@arg show_scores: --("show-scores")
+                "Print scores instead of letter and n-gram counts")
         )
         (@subcommand eval =>
             (about: "Evaluate layouts")
@@ -451,6 +458,8 @@ fn main() {
                 "Print extra information for each layout")
             (@arg LAYOUT: +multiple +required
                 "Layout to evaluate")
+            (@arg show_scores: --("show-scores")
+                "Print scores instead of letter and n-gram counts")
         )
         (@subcommand rank =>
             (about: "Rank layouts")
@@ -465,6 +474,8 @@ fn main() {
                 "Number of top-ranked layouts to output")
             (@arg scores: -s --scores +takes_value
                 "Comma-separated list of scores to rank layouts by")
+            (@arg show_scores: --("show-scores")
+                "Print scores instead of letter and n-gram counts")
         )
     ).get_matches();
 
