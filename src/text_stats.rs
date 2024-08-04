@@ -122,19 +122,23 @@ impl FromStr for TextStats {
     fn from_str(text: &str) -> Result <Self, Self::Err> {
         let len = text.chars().count();
         let mut i = 0usize;
-        let mut bigram = [' '; 2];
-        let mut trigram = [' '; 3];
+        let mut bigram = ['\0'; 2];
+        let mut trigram = ['\0'; 3];
         let mut s_map = MyMap::new();
         let mut b_map = MyMap::new();
         let mut t_map = MyMap::new();
 
         // Build maps of symbols, bigrams and 3-grams of lower-case
-        // characters in the text.
-        for c in text.chars() {
+        // characters in the text. Collapse all consecutive whitespace
+        // into a single ' ' character respectively.
+        for c in text.chars().map(|c| if c.is_whitespace() {' '} else {c}) {
             i += 1;
             if i % 1000000 == 0 {
                 eprint!("Processing text ngrams: {:5.2}%\r",
                         i as f64 / len as f64 * 100.0);
+            }
+            if c == ' ' && bigram[1] == ' ' {
+                continue;
             }
 
             for c in c.to_lowercase() {
@@ -145,10 +149,10 @@ impl FromStr for TextStats {
 
                 let (count, _) = s_map.entry(symbol).or_insert((0, 0));
                 *count += 1;
-                if !(bigram[0].is_whitespace() || bigram[1].is_whitespace()) {
+                if bigram[0] != '\0' {
                     let (count, _) = b_map.entry(bigram).or_insert((0, 0));
                     *count += 1;
-                    if !trigram[0].is_whitespace() {
+                    if trigram[0] != '\0' {
                         let (count, _) = t_map.entry(trigram).or_insert((0, 0));
                         *count += 1;
                     }
