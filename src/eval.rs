@@ -241,7 +241,7 @@ struct KeyProps {
     finger: u8,
     is_stretch: bool,
     d_abs: f32,
-    d_rel: [f32; 30],
+    d_rel: [f32; 31],
     cost: u16,
 }
 
@@ -514,7 +514,7 @@ pub struct KuehlmakScores<'a> {
     layout: Layout,
     token_keymap: Vec<u8>,
     strokes: u64,
-    heatmap: [u64; 30],
+    heatmap: [u64; 31],
     bigram_counts: [[u64; 2]; BIGRAM_NUM_TYPES],
     trigram_counts: [[u64; 2]; TRIGRAM_NUM_TYPES],
     bigram_lists: [Option<Vec<(Bigram, u64)>>; BIGRAM_NUM_TYPES],
@@ -537,9 +537,9 @@ pub struct KuehlmakScores<'a> {
 #[derive(Clone)]
 pub struct KuehlmakModel {
     params: KuehlmakParams,
-    key_props: [KeyProps; 30],
-    bigram_types: [[u8; 30]; 30],
-    trigram_types: [[[u8; 30]; 30]; 30],
+    key_props: [KeyProps; 31],
+    bigram_types: [[u8; 31]; 31],
+    trigram_types: [[[u8; 31]; 31]; 31],
     key_cost_ranking: [usize; 30],
 }
 
@@ -550,7 +550,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         let mut fh = [0u64; 8];
         let (mut raw_effort, mut raw_left, mut raw_right) = (0u64, 0u64, 0u64);
         for (&count, props) in
-                self.heatmap.iter().zip(self.model.key_props.iter()) {
+                self.heatmap.iter().zip(self.model.key_props.iter().take(30)) {
             let cost = count * props.cost as u64;
             fh[props.finger as usize] += match show_scores {
                 false => count,
@@ -876,7 +876,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             constraints: eval_constraints(layout, &self.params.constraints),
             token_keymap: Vec::new(),
             strokes: 0,
-            heatmap: [0; 30],
+            heatmap: [0; 31],
             bigram_counts: [[0; 2]; BIGRAM_NUM_TYPES],
             trigram_counts: [[0; 2]; TRIGRAM_NUM_TYPES],
             bigram_lists: [None, bl(), bl(), bl(), bl(), bl(), bl(), bl(), bl()],
@@ -896,7 +896,8 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
         };
 
         scores.token_keymap.resize(ts.token_base(), u8::MAX);
-        for (k, symbols) in layout.iter().enumerate() {
+        for (k, symbols) in layout.iter().chain((&[[' ', '\0']]).iter())
+                                  .enumerate() {
             for &(count, token) in
                     symbols.iter().filter_map(|s| ts.get_symbol([*s])) {
                 scores.token_keymap[token] = k as u8;
@@ -980,7 +981,7 @@ impl KuehlmakModel {
         // per finger.
         let mut finger_cost = [0.0; 8];
         for (&count, props) in
-                scores.heatmap.iter().zip(self.key_props.iter()) {
+                scores.heatmap.iter().zip(self.key_props.iter()).take(30) {
             let f = props.finger as usize;
             finger_cost[f] += (count as f64) * (props.cost as f64);
         }
@@ -1006,7 +1007,7 @@ impl KuehlmakModel {
         // required.
         let mut hand_total = [0u64; 2];
         for (&count, props) in
-                scores.heatmap.iter().zip(self.key_props.iter()) {
+                scores.heatmap.iter().zip(self.key_props.iter()).take(30) {
             scores.finger_travel[props.finger as usize] +=
                 props.d_abs as f64 * count as f64;
 
@@ -1094,7 +1095,7 @@ impl KuehlmakModel {
             let k1 = scores.token_keymap[t1] as usize;
             let k2 = scores.token_keymap[t2] as usize;
 
-            if k0 >= 30 || k1 >= 30 || k2 >= 30 {
+            if k0 >= 30 || k1 >= 31 || k2 >= 30 {
                 continue;
             }
 
@@ -1177,7 +1178,7 @@ impl KuehlmakModel {
     fn score_imbalance(&self, scores: &mut KuehlmakScores) {
         let mut hand_weight = [0, 0];
         for (&count, props) in
-                scores.heatmap.iter().zip(self.key_props.iter()) {
+                scores.heatmap.iter().zip(self.key_props.iter()).take(30) {
             hand_weight[props.hand as usize] += count;
         }
         let balance = if hand_weight[0] > hand_weight[1] {
@@ -1196,6 +1197,7 @@ impl KuehlmakModel {
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
             k(), k(), k(), k(), k(), k(), k(), k(), k(), k(),
+            k()
         ];
 
         // Scissors are symmetrical in two ways:
@@ -1233,11 +1235,11 @@ impl KuehlmakModel {
                                 .map(|b| (mirror_key(b.1), mirror_key(b.0))));
         scissors.sort();
 
-        let mut bigram_types = [[BIGRAM_ALTERNATE as u8; 30]; 30];
+        let mut bigram_types = [[BIGRAM_ALTERNATE as u8; 31]; 31];
         for (i, &KeyProps {hand: h0, finger: f0, is_stretch: s0, ..})
-                in key_props.iter().enumerate() {
+                in key_props.iter().enumerate().take(30) {
             for (j, &KeyProps {hand: h1, finger: f1, is_stretch: s1, ..})
-                    in key_props.iter().enumerate() {
+                    in key_props.iter().enumerate().take(30) {
                 if h0 != h1 {
                     continue;
                 }
@@ -1269,14 +1271,14 @@ impl KuehlmakModel {
             }
         }
 
-        let mut trigram_types = [[[TRIGRAM_NONE as u8; 30]; 30]; 30];
+        let mut trigram_types = [[[TRIGRAM_NONE as u8; 31]; 31]; 31];
         for (i, &KeyProps {hand: h0, finger: f0, ..})
-                in key_props.iter().enumerate() {
+                in key_props.iter().enumerate().take(30) {
             for (j, &KeyProps {hand: h1, finger: f1, ..})
-                    in key_props.iter().enumerate() {
+                    in key_props.iter().enumerate() { // Space is only interesting on the middle key
                 for (k, &KeyProps {hand: h2, finger: f2, ..})
-                        in key_props.iter().enumerate() {
-                    if h0 == h2 && h0 != h1 { // Disjointed same-hand bigrams
+                        in key_props.iter().enumerate().take(30) {
+                    if h0 == h2 && (h0 != h1 || j == 30) { // Disjointed same-hand bigrams
                         trigram_types[i][j][k] = match bigram_types[i][k] as usize {
                             BIGRAM_SAMEKEY => TRIGRAM_D_SAMEKEY,
                             BIGRAM_SFB     => TRIGRAM_D_SFB,
@@ -1288,7 +1290,7 @@ impl KuehlmakModel {
                             BIGRAM_SCISSOR => TRIGRAM_D_SCISSOR,
                             _              => panic!("Unexpected disjointed same-hand trigram")
                         } as u8;
-                    } else if h0 == h1 && h1 == h2 { // Same-hand trigrams
+                    } else if h0 == h1 && h1 == h2 && j < 30 { // Same-hand trigrams
                         if i == k && f0 != f1 { // Disjointed same-key
                             trigram_types[i][j][k] = TRIGRAM_SHD_SAMEKEY as u8;
                         } else if f0 == f2 && f0 != f1 { // Disjointed same-finger bigrams
@@ -1337,9 +1339,10 @@ impl KuehlmakModel {
         let key = key as usize;
         let row = key / 10;
         let col = key % 10;
-        assert!(row < 3);
+        assert!(row < 3 || (row == 3 && col == 0));
 
         let (hand, finger, weight, home_col, is_stretch) = match params.board_type {
+            _ if row == 3 => (RIGHT, R_THUMB, 0, 0.0, false), // Space uses the right thumb for now
             KeyboardType::Hex | KeyboardType::HexStag if row == 0 => match col {
                 0     => (LEFT,  L_PINKY,  params.weights.pinky_finger,  0.0, true),
                 1     => (LEFT,  L_PINKY,  params.weights.pinky_finger,  0.0, false),
@@ -1383,7 +1386,7 @@ impl KuehlmakModel {
 
         // Calculate relative distance to other keys on the same finger.
         // Used for calculating finger travel distances.
-        let mut d_rel = [-1.0; 30];
+        let mut d_rel = [-1.0; 31];
         d_rel[key] = 0.0;
 
         let mut calc_d_rel = |r: usize, c: usize| {
@@ -1398,6 +1401,7 @@ impl KuehlmakModel {
                 }
             }
         }
+        calc_d_rel(3, 0);
 
         KeyProps {
             hand: hand as u8,
@@ -1421,6 +1425,7 @@ const R_INDEX:  usize = 4;
 const R_MIDDLE: usize = 5;
 const R_RING:   usize = 6;
 const R_PINKY:  usize = 7;
+const R_THUMB:  usize = 8;
 
 const BIGRAM_ALTERNATE:  usize = 0;
 const BIGRAM_SAMEKEY:    usize = 1;
@@ -1450,39 +1455,45 @@ const TRIGRAM_CONTORT:     usize = 13;
 const TRIGRAM_NUM_TYPES:   usize = 14;
 
 
-type KeyOffsets = [[f32; 2]; 3];
+type KeyOffsets = [[f32; 2]; 4];
 
-const KEY_OFFSETS_ORTHO: KeyOffsets = [[ 0.0,   0.0 ], [0.0, 0.0], [ 0.0, 0.0]];
-const KEY_OFFSETS_HEX:   KeyOffsets = [[-1.0,   1.0 ], [0.0, 0.0], [ 0.0, 0.0]];
-const KEY_OFFSETS_ANSI:  KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [ 0.5, 0.5]];
-const KEY_OFFSETS_ISO:   KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [-0.5, 0.5]];
-const KEY_COST_ORTHO: [u8; 30] = [
+const KEY_OFFSETS_ORTHO: KeyOffsets = [[ 0.0,   0.0 ], [0.0, 0.0], [ 0.0, 0.0], [4.0, 5.0]];
+const KEY_OFFSETS_HEX:   KeyOffsets = [[-1.0,   1.0 ], [0.0, 0.0], [ 0.0, 0.0], [4.0, 5.0]];
+const KEY_OFFSETS_ANSI:  KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [ 0.5, 0.5], [4.0, 5.0]];
+const KEY_OFFSETS_ISO:   KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [-0.5, 0.5], [4.0, 5.0]];
+const KEY_COST_ORTHO: [u8; 31] = [
     4,  2,  2,  4, 12, 12,  4,  2,  2,  4,
     1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
     2,  4,  4,  2,  6,  6,  2,  4,  4,  2,
+                        1
 ];
-const KEY_COST_COL_STAG: [u8; 30] = [
+const KEY_COST_COL_STAG: [u8; 31] = [
     2,  2,  2,  2,  6,  6,  2,  2,  2,  2,
     1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
     2,  2,  2,  2,  6,  6,  2,  2,  2,  2,
+                        1
 ];
-const KEY_COST_HEX: [u8; 30] = [
+const KEY_COST_HEX: [u8; 31] = [
     3,  4,  2,  2,  4,      4,  2,  2,  4,  3,
       1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
     2,  4,  4,  2,  6,      6,  2,  4,  4,  2,
+                          1
 ];
-const KEY_COST_HEX_STAG: [u8; 30] = [
+const KEY_COST_HEX_STAG: [u8; 31] = [
     2,  3,  2,  2,  2,      2,  2,  2,  3,  2,
       1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
     2,  2,  2,  2,  6,      6,  2,  2,  2,  2,
+                          1
 ];
-const KEY_COST_ANSI: [u8; 30] = [
+const KEY_COST_ANSI: [u8; 31] = [
     4,  2,  2,  4,  6, 12,  4,  2,  2,  4,
      1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
        2,  4,  4,  2,  9,  3,  2,  4,  4,  2,
+                         1
 ];
-const KEY_COST_ISO: [u8; 30] = [
+const KEY_COST_ISO: [u8; 31] = [
      4,  2,  2,  4,  6, 12,  4,  2,  2,  4,
       1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
     2,  4,  4,  2,  3,      3,  2,  4,  4,  2,
+                          1
 ];

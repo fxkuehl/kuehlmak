@@ -141,6 +141,7 @@ fn anneal_command(sub_m: &ArgMatches) {
                     || config.as_ref().and_then(|c| c.text_file.as_deref()));
     let text = text_from_file(text_filename);
     let mut alphabet: Vec<_> = layout.iter().flatten().copied().collect();
+    alphabet.push(' ');
     alphabet.sort();
     let text = text.filter(|c| alphabet.binary_search(&c).is_ok(), 1);
 
