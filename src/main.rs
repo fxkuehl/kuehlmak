@@ -90,7 +90,7 @@ fn text_from_file(path: Option<&Path>) -> TextStats {
                                   .unwrap_or(false);
         fs::read_to_string(path)
     } else {
-        println!("Reading text from stdin ...");
+        eprintln!("Reading text from stdin ...");
         let mut s = String::new();
         match io::stdin().read_to_string(&mut s) {
             Ok(_size) => Ok(s),
