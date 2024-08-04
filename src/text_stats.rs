@@ -258,22 +258,22 @@ impl Index<usize> for TextStats {
 }
 
 impl TextStats {
-    pub fn filter<F>(self, f: F) -> Self
+    pub fn filter<F>(self, f: F, min: u64) -> Self
     where
         F: FnMut(char) -> bool
     {
         let mut f = f;
 
         let s_map = self.iter_symbols()
-                        .filter(|&(s, _, _)| f(s[0]))
+                        .filter(|& &(s, count, _)| count >= min && f(s[0]))
                         .map(|&(s, count, _)| (s, (count, 0)))
                         .collect();
         let b_map = self.iter_bigrams()
-                        .filter(|&(b, _, _)| f(b[0]) && f(b[1]))
+                        .filter(|& &(b, count, _)| count >= min && f(b[0]) && f(b[1]))
                         .map(|&(b, count, _)| (b, (count, 0)))
                         .collect();
         let t_map = self.iter_trigrams()
-                        .filter(|&(t, _, _)| f(t[0]) && f(t[1]) && f(t[2]))
+                        .filter(|& &(t, count, _)| count >= min && f(t[0]) && f(t[1]) && f(t[2]))
                         .map(|&(t, count, _)| (t, (count, 0)))
                         .collect();
 
@@ -553,12 +553,13 @@ mod tests {
     #[test]
     fn filter() {
         let filter_fn = char::is_alphabetic;
+        let min = 2u64;
         let filtered = TextStats::from_str(TEST_STRING).unwrap()
-            .filter(filter_fn);
+            .filter(filter_fn, min);
         let stats = TextStats::from_str(TEST_STRING).unwrap();
 
         for &(s, counter, token) in stats.iter_symbols() {
-            if filter_fn(s[0]) {
+            if filter_fn(s[0]) && counter >= min {
                 assert_eq!(counter, filtered[s].0);
                 println!("  '{}': {} #{} (was #{})", s[0], counter, filtered[s].1, token);
             } else {
@@ -567,7 +568,7 @@ mod tests {
             }
         }
         for &(b, counter, token) in stats.iter_bigrams() {
-            if b.iter().copied().all(filter_fn) {
+            if b.iter().copied().all(filter_fn) && counter >= min {
                 assert_eq!(counter, filtered[b].0);
                 println!("  '{}{}': {} #{} (was #{})", b[0], b[1], counter, filtered[b].1, token);
             } else {
@@ -576,7 +577,7 @@ mod tests {
             }
         }
         for &(t, counter, token) in stats.iter_trigrams() {
-            if t.iter().copied().all(filter_fn) {
+            if t.iter().copied().all(filter_fn) && counter >= min {
                 assert_eq!(counter, filtered[t].0);
                 println!("  '{}{}{}': {} #{} (was #{})", t[0], t[1], t[2], counter, filtered[t].1, token);
             } else {

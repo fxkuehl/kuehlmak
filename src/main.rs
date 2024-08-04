@@ -142,7 +142,7 @@ fn anneal_command(sub_m: &ArgMatches) {
     let text = text_from_file(text_filename);
     let mut alphabet: Vec<_> = layout.iter().flatten().copied().collect();
     alphabet.sort();
-    let text = text.filter(|c| alphabet.binary_search(&c).is_ok());
+    let text = text.filter(|c| alphabet.binary_search(&c).is_ok(), 1);
 
     let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
 
@@ -368,6 +368,13 @@ fn rank_command(sub_m: &ArgMatches) {
 fn textstats_command(sub_m: &ArgMatches) {
     let text_filename = sub_m.value_of("text").map(|p| p.as_ref());
     let text = text_from_file(text_filename);
+    let min: u64 = match sub_m.value_of("min") {
+        Some(number) => number.parse().unwrap_or_else(|e| {
+            eprintln!("Invalid number '{}': {}", number, e);
+            process::exit(1)
+        }),
+        None => 1
+    };
 
     let text = if let Some(alpha) = sub_m.value_of("alphabet") {
         let mut alphabet = vec![];
@@ -395,7 +402,9 @@ fn textstats_command(sub_m: &ArgMatches) {
         }
 
         alphabet.sort();
-        text.filter(|c| alphabet.binary_search(&c).is_ok())
+        text.filter(|c| alphabet.binary_search(&c).is_ok(), min)
+    } else if min > 1 {
+        text.filter(|_| true, min)
     } else {
         text
     };
@@ -418,6 +427,8 @@ fn main() {
             (version: "0.1")
             (@arg alphabet: -a --alphabet +takes_value
                 "Filter stats only for those symbols\n(e.g. '-_a-z;,./<>?:')")
+            (@arg min: -m --min +takes_value
+                "Drop symbols and n-grams with lower count")
             (@arg pretty: --pretty
                 "Pretty-print JSON output")
             (@arg text: -t --text +takes_value
