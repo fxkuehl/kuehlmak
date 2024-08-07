@@ -575,50 +575,47 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
 
         let key_space = match self.model.params.board_type {
                 KeyboardType::Ortho | KeyboardType::ColStag =>
-                    [[" ", "|||  ", " | ", " | ", "  |||", " "]; 3],
+                    [["  ", " ||| ", "|", "|", "  |||", "  "]; 3],
                 KeyboardType::Hex | KeyboardType::HexStag  =>
-                    [["", " /// ", "  |  ", "  |  ", " \\\\\\ ", ""],
-                     ["  ", "/// /", "Λ",     " ", "\\ \\\\\\", "  "],
-                     ["", "/// /", "/   \\", "     ", "\\ \\\\\\", ""]],
+                    [["", "  ///", "\\   /", " \\ / ", " \\\\\\ ", ""],
+                     ["  ", " /// ", "\\",     "/", "  \\\\\\", "  "],
+                     ["", " /// ", " / \\ ", "/   \\", "  \\\\\\", ""]],
                 KeyboardType::ANSI =>
-                    [[" ", "\\\\\\  ", "/", "\\", "  \\\\\\", "   "],
-                     ["  ", "\\\\\\  ", "\\", " ", "\\ \\\\\\", "  "],
-                     ["    ", "\\\\\\  ", "\\", " ", "\\ \\\\\\", ""]],
+                    [[" ", " \\\\\\ ", "|", "\\", "  \\\\\\", "   "],
+                     ["  ", " \\\\\\ ", "\\", " ", "\\ \\\\\\", "  "],
+                     ["    ", " \\\\\\ ", "\\", " ", "\\ \\\\\\", ""]],
                 KeyboardType::ISO =>
-                    [[" ", "\\\\\\  ", "/",  "\\", "  \\\\\\", "   "],
-                     ["  ", "/// /", "\\",     " ", "\\ \\\\\\", "  "],
-                     ["", "/// /", "/   \\", "     ", "\\ \\\\\\", ""]],
+                    [[" ", " \\\\\\ ", "|",  "\\", "  \\\\\\", "   "],
+                     ["  ", " /// ", "\\",     " ", "\\ \\\\\\", "  "],
+                     ["", " /// ", " [*]\\", "  -  ", "\\ \\\\\\", ""]],
             };
 
         let mut layout_iter = self.layout().into_iter();
-        let mut write_5keys = |w: &mut W, left: bool|
+        let mut write_5keys = |w: &mut W|
             layout_iter.by_ref().take(5)
                        .map(|[a, b]| match b.to_lowercase().next() {
-                           Some(l) if l == a && left => write!(w, "[{}] ", b),
-                           Some(l) if l == a         => write!(w, " [{}]", b),
-                           _                         => write!(w, "[{}{}]", a, b),
+                           Some(l) if l == a => write!(w, " [{}]", b),
+                           _                 => write!(w, "[{}{}]", a, b),
                        }).fold(Ok(()), io::Result::and);
         let mut write_key_row = |w: &mut W, [prefix,_,sep,_,_,suffix]: [&str; 6]| {
             w.write_all(prefix.as_bytes())?;
-            write_5keys(w, true)?;
+            write_5keys(w)?;
             w.write_all(sep.as_bytes())?;
-            write_5keys(w, false)?;
+            write_5keys(w)?;
             writeln!(w, "{}", suffix)
         };
 
         let mut heat_iter = self.heatmap.iter().zip(self.model.key_props.iter())
                 .map(|(&h, &props)| if show_scores {h * props.cost as u64} else {h});
-        let mut write_5heats = |w: &mut W, sep: &str, left: bool|
+        let mut write_5heats = |w: &mut W, sep: &str|
             heat_iter.by_ref().take(5).zip(sep.chars())
-                     .map(|(h, s)| match left {
-                         true  => write!(w, "{0:^3.0}{1}", h as f64 * norm, s),
-                         false => write!(w, "{1}{0:^3.0}", h as f64 * norm, s)
-                     }).fold(Ok(()), io::Result::and);
+                     .map(|(h, s)| write!(w, "{}{:^3.0}", s, h as f64 * norm))
+                     .fold(Ok(()), io::Result::and);
         let mut write_heat_row = |w: &mut W, [prefix,lsep,_,sep,rsep,suffix]: [&str; 6]| {
             w.write_all(prefix.as_bytes())?;
-            write_5heats(w, lsep, true)?;
+            write_5heats(w, lsep)?;
             w.write_all(sep.as_bytes())?;
-            write_5heats(w, rsep, false)?;
+            write_5heats(w, rsep)?;
             writeln!(w, "{}", suffix)
         };
 
@@ -647,31 +644,13 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             write!(w, "{:5.1}{}", val, ind)
         };
 
-        write!(w, "Effort {:6.1} ({:6.1}) {:+7.2}% {} |",
-               self.effort * 1000.0, raw_effort, self.imbalance * 100.0,
-               if raw_left > raw_right {'<'} else {'>'})?;
-        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}= {:4.0} |",
-               fh_iter.next().unwrap(), fh_iter.next().unwrap(),
-               fh_iter.next().unwrap(), fh_iter.next().unwrap(),
-               hh_iter.next().unwrap())?;
-        writeln!(w, " {:4.0} ={:3.0}+{:3.0}+{:3.0}+{:3.0}",
-                 hh_iter.next().unwrap(),
-                 fh_iter.next().unwrap(), fh_iter.next().unwrap(),
-                 fh_iter.next().unwrap(), fh_iter.next().unwrap())?;
-
-        write!(w, "Travel {:6.1} ({:6.1})            |",
-               self.travel * 1000.0, raw_travel)?;
-        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}= {:4.0} |",
-               ft_iter.next().unwrap(), ft_iter.next().unwrap(),
-               ft_iter.next().unwrap(), ft_iter.next().unwrap(),
-               ht_iter.next().unwrap())?;
-        writeln!(w, " {:4.0} ={:3.0}+{:3.0}+{:3.0}+{:3.0}",
-                 ht_iter.next().unwrap(),
-                 ft_iter.next().unwrap(), ft_iter.next().unwrap(),
-                 ft_iter.next().unwrap(), ft_iter.next().unwrap())?;
+        write!(w, "Score+Con{:7.1}{:+8.1} ={:7.1} |",
+               self.total * 1000.0, self.constraints * 1000.0,
+               (self.total + self.constraints) * 1000.0)?;
+        write_key_row(w, key_space[0])?;
 
         write!(w, "    DRoll URoll  WLSB Scissor SFB |")?;
-        write_key_row(w, key_space[0])?;
+        write_heat_row(w, key_space[0])?;
 
         write!(w, " AB ")?;
         write_ngram_u(w, &self.bigram_counts[BIGRAM_DROLL])?;
@@ -680,7 +659,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         write_ngram_u(w, &self.bigram_counts[BIGRAM_SCISSOR])?;
         write_ngram_u(w, &self.bigram_counts[BIGRAM_SFB])?;
         write!(w, "|")?;
-        write_heat_row(w, key_space[0])?;
+        write_key_row(w, key_space[1])?;
 
         write!(w, "A_B ")?;
         write_ngram_u(w, &self.trigram_counts[TRIGRAM_D_DROLL])?;
@@ -689,22 +668,42 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         write_ngram_u(w, &self.trigram_counts[TRIGRAM_D_SCISSOR])?;
         write_ngram_u(w, &self.trigram_counts[TRIGRAM_D_SFB])?;
         write!(w, "|")?;
-        write_key_row(w, key_space[1])?;
+        write_heat_row(w, key_space[1])?;
 
         write!(w, "    RRoll Redir Contort  Runs L:R |")?;
-        write_heat_row(w, key_space[1])?;
+        write_key_row(w, key_space[2])?;
 
         write!(w, "ABC ")?;
         write_ngram_u(w, &self.trigram_counts[TRIGRAM_RROLL])?;
         write_ngram_u(w, &self.redirects)?;
         write_ngram_u(w, &self.contorts)?;
         write!(w, "  {:4.2}:{:4.2} |", self.hand_runs[0], self.hand_runs[1])?;
-        write_key_row(w, key_space[2])?;
-
-        write!(w, "Score+Con{:7.1}{:+8.1} ={:7.1} |",
-               self.total * 1000.0, self.constraints * 1000.0,
-               (self.total + self.constraints) * 1000.0)?;
         write_heat_row(w, key_space[2])?;
+
+        write!(w, "Travel {:6.1} ({:6.1})            |",
+               self.travel * 1000.0, raw_travel)?;
+        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}={:<3.0}",
+               ft_iter.next().unwrap(), ft_iter.next().unwrap(),
+               ft_iter.next().unwrap(), ft_iter.next().unwrap(),
+               ht_iter.next().unwrap())?;
+        write!(w, " [___] ")?;
+        writeln!(w, "{:3.0}={:3.0}+{:3.0}+{:3.0}+{:3.0}",
+                 ht_iter.next().unwrap(),
+                 ft_iter.next().unwrap(), ft_iter.next().unwrap(),
+                 ft_iter.next().unwrap(), ft_iter.next().unwrap())?;
+
+        write!(w, "Effort {:6.1} ({:6.1}) {:+7.2}% {} |",
+               self.effort * 1000.0, raw_effort, self.imbalance * 100.0,
+               if raw_left > raw_right {'<'} else {'>'})?;
+        write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}={:<4.0}",
+               fh_iter.next().unwrap(), fh_iter.next().unwrap(),
+               fh_iter.next().unwrap(), fh_iter.next().unwrap(),
+               hh_iter.next().unwrap())?;
+        write!(w, " {:^3.0} ", self.heatmap[30] as f64 * norm)?;
+        writeln!(w, "{:4.0}={:3.0}+{:3.0}+{:3.0}+{:3.0}",
+                 hh_iter.next().unwrap(),
+                 fh_iter.next().unwrap(), fh_iter.next().unwrap(),
+                 fh_iter.next().unwrap(), fh_iter.next().unwrap())?;
 
         Ok(())
     }
