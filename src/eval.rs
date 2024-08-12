@@ -7,6 +7,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
 use std::ops::Mul;
+use std::ops::RangeInclusive;
 use serde::{Serialize, Deserialize};
 
 // Layout: 2 chars per key (normal/shifted), 10 keys per row, 3 rows
@@ -235,10 +236,33 @@ pub enum KeyboardType {
     ISO,
 }
 
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Hand {
+    L,
+    R,
+    Any,
+}
+
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+enum Finger {
+    Lp, // Left pinky
+    Lr, // Left ring
+    Lm, // Left middle
+    Li, // Left index
+    Th, // Any thumb
+    Ri, // Right index
+    Rm, // Right middle
+    Rr, // Right ring
+    Rp, // Right pinky
+    Num
+}
+const LFINGS: RangeInclusive<usize> = (Finger::Lp as usize)..=(Finger::Li as usize);
+const RFINGS: RangeInclusive<usize> = (Finger::Ri as usize)..=(Finger::Rp as usize);
+
 #[derive(Clone, Copy)]
 struct KeyProps {
-    hand: u8,
-    finger: u8,
+    hand: Hand,
+    finger: Finger,
     is_stretch: bool,
     d_abs: f32,
     d_rel: [f32; 31],
@@ -296,6 +320,7 @@ pub trait EvalModel<'a> {
 #[serde(default)]
 pub struct KuehlmakParams {
     board_type: KeyboardType,
+    space_thumb: Hand,
     weights: KuehlmakWeights,
     constraints: ConstraintParams,
 }
@@ -304,6 +329,7 @@ impl Default for KuehlmakParams {
     fn default() -> Self {
         KuehlmakParams {
             board_type: KeyboardType::Ortho,
+            space_thumb: Hand::Any,
             weights: KuehlmakWeights::default(),
             constraints: ConstraintParams::default(),
         }
@@ -519,7 +545,7 @@ pub struct KuehlmakScores<'a> {
     trigram_counts: [[u64; 2]; TRIGRAM_NUM_TYPES],
     bigram_lists: [Option<Vec<(Bigram, u64)>>; BIGRAM_NUM_TYPES],
     trigram_lists: [Option<Vec<(Trigram, u64)>>; TRIGRAM_NUM_TYPES],
-    finger_travel: [f64; 8],
+    finger_travel: [f64; Finger::Num as usize],
     urolls: [f64; 2],
     wlsbs: [f64; 2],
     d_urolls: [f64; 2],
@@ -547,30 +573,34 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
     fn write<W>(&self, w: &mut W, show_scores: bool) -> io::Result<()>
     where W: IoWrite {
         let norm = 1000.0 / self.strokes as f64;
-        let mut fh = [0u64; 8];
+        let mut fh = [0u64; Finger::Num as usize];
         let (mut raw_effort, mut raw_left, mut raw_right) = (0u64, 0u64, 0u64);
         for (&count, props) in
-                self.heatmap.iter().zip(self.model.key_props.iter().take(30)) {
+                self.heatmap.iter().zip(self.model.key_props.iter()) {
             let cost = count * props.cost as u64;
             fh[props.finger as usize] += match show_scores {
                 false => count,
                 true  => cost,
             };
             match props.hand {
-                0 => raw_left += cost,
-                1 => raw_right += cost,
+                Hand::L => raw_left += count,
+                Hand::R => raw_right += count,
                 _ => {}
             }
             raw_effort += cost;
         }
         let raw_effort = raw_effort as f64 * norm;
 
-        let mut fh_iter = fh.iter().map(|&h| h as f64 * norm);
-        let mut hh_iter = fh.chunks(4)
-                            .map(|s| s.iter().sum::<u64>() as f64 * norm);
-        let mut ft_iter = self.finger_travel.iter().map(|&t| t * norm);
-        let mut ht_iter = self.finger_travel.chunks(4)
-                              .map(|s| s.iter().sum::<f64>() * norm);
+        let mut fh_iter = fh[LFINGS].iter().chain(
+                          fh[RFINGS].iter()).map(|&h| h as f64 * norm);
+        let hh_chunks = [&fh[LFINGS], &fh[RFINGS]];
+        let mut hh_iter = hh_chunks.iter()
+                                   .map(|s| s.iter().sum::<u64>() as f64 * norm);
+        let mut ft_iter = self.finger_travel[LFINGS].iter().chain(
+                          self.finger_travel[RFINGS].iter()).map(|&t| t * norm);
+        let ht_chunks = [&self.finger_travel[LFINGS], &self.finger_travel[RFINGS]];
+        let mut ht_iter = ht_chunks.iter()
+                                   .map(|s| s.iter().sum::<f64>() * norm);
         let raw_travel = self.finger_travel.iter().sum::<f64>() * norm;
 
         let key_space = match self.model.params.board_type {
@@ -686,7 +716,11 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                ht_iter.next().unwrap())?;
-        write!(w, " [___] ")?;
+        match self.model.params.space_thumb {
+            Hand::L   => write!(w, "[___]  "),
+            Hand::R   => write!(w, "  [___]"),
+            Hand::Any => write!(w, " [___] "),
+        }?;
         writeln!(w, "{:3.0}={:3.0}+{:3.0}+{:3.0}+{:3.0}",
                  ht_iter.next().unwrap(),
                  ft_iter.next().unwrap(), ft_iter.next().unwrap(),
@@ -699,7 +733,11 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                fh_iter.next().unwrap(), fh_iter.next().unwrap(),
                fh_iter.next().unwrap(), fh_iter.next().unwrap(),
                hh_iter.next().unwrap())?;
-        write!(w, " {:^3.0} ", self.heatmap[30] as f64 * norm)?;
+        write!(w, "{}{:^3.0}{}",
+                if let Hand::L = self.model.params.space_thumb {'+'} else {' '},
+                self.heatmap[30] as f64 * norm,
+                if let Hand::R = self.model.params.space_thumb {'+'} else {' '}
+                )?;
         writeln!(w, "{:4.0}={:3.0}+{:3.0}+{:3.0}+{:3.0}",
                  hh_iter.next().unwrap(),
                  fh_iter.next().unwrap(), fh_iter.next().unwrap(),
@@ -711,9 +749,10 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
     fn write_extra<W>(&self, w: &mut W) -> io::Result<()>
     where W: IoWrite {
         let norm = 1000.0 / self.strokes as f64;
-        let is_side = |side, c| self.layout().iter()
-                                    .position(|&[l, u]| l == c || u == c)
-                                    .unwrap() % 10 / 5 == side;
+        let is_side = |side, c| if c == ' '
+            {self.model.params.space_thumb == side} else
+            {self.layout().iter().position(|&[l, u]| l == c || u == c)
+                                 .unwrap() % 10 / 5 == side as usize};
         let write_2gram_freqs = |w: &mut W, vec: &Vec<(Bigram, u64)>, side|
                 -> io::Result<f64> {
             let mut sum = 0.0;
@@ -739,10 +778,10 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             writeln!(w)?;
             writeln!(w, "{}:", name)?;
             write!(w, " Left hand:")?;
-            let left_sum = write_2gram_freqs(w, vec, 0)?;
+            let left_sum = write_2gram_freqs(w, vec, Hand::L)?;
             writeln!(w)?;
             write!(w, "Right hand:")?;
-            let right_sum = write_2gram_freqs(w, vec, 1)?;
+            let right_sum = write_2gram_freqs(w, vec, Hand::R)?;
             writeln!(w)?;
             write!(w, "Balance: {:.2}:{:.2}", left_sum, right_sum)?;
             writeln!(w)?;
@@ -776,10 +815,10 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             writeln!(w)?;
             writeln!(w, "{}:", name)?;
             write!(w, " Left hand:")?;
-            let left_sum = write_3gram_freqs(w, vec, 0)?;
+            let left_sum = write_3gram_freqs(w, vec, Hand::L)?;
             writeln!(w)?;
             write!(w, "Right hand:")?;
-            let right_sum = write_3gram_freqs(w, vec, 1)?;
+            let right_sum = write_3gram_freqs(w, vec, Hand::R)?;
             writeln!(w)?;
             write!(w, "Balance: {:.2}:{:.2}", left_sum, right_sum)?;
             writeln!(w)?;
@@ -880,7 +919,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
             trigram_counts: [[0; 2]; TRIGRAM_NUM_TYPES],
             bigram_lists: [None, bl(), bl(), bl(), bl(), bl(), bl(), bl(), bl()],
             trigram_lists: [None, tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl(), tl()],
-            finger_travel: [0.0; 8],
+            finger_travel: [0.0; Finger::Num as usize],
             urolls: [0.0; 2],
             wlsbs: [0.0; 2],
             d_urolls: [0.0; 2],
@@ -950,7 +989,8 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
         match self.params.board_type {
             KeyboardType::ISO => false,
             KeyboardType::ANSI => false,
-            _ => self.params.constraints.ref_layout == None &&
+            _ => self.params.space_thumb == Hand::Any &&
+                 self.params.constraints.ref_layout == None &&
                  self.params.constraints.zxcv == 0.0 &&
                  self.params.constraints.nonalpha == 0.0,
         }
@@ -978,15 +1018,15 @@ impl KuehlmakModel {
         // heavily overused fingers. The result is normalized so that a
         // balanced layout produces the same score as summing up effort
         // per finger.
-        let mut finger_cost = [0.0; 8];
+        let mut finger_cost = [0.0; Finger::Num as usize];
         for (&count, props) in
-                scores.heatmap.iter().zip(self.key_props.iter()).take(30) {
+                scores.heatmap.iter().zip(self.key_props.iter()) {
             let f = props.finger as usize;
             finger_cost[f] += (count as f64) * (props.cost as f64);
         }
         scores.effort = finger_cost.into_iter()
                                    .map(|c| c * c)
-                                   .sum::<f64>().mul(8.0)
+                                   .sum::<f64>().mul(Finger::Num as isize as f64)
                                    .sqrt() / scores.strokes as f64;
     }
 
@@ -1004,9 +1044,9 @@ impl KuehlmakModel {
         // Multiply the travel distance for same-finger bigrams and 3-grams
         // with a penalty factor that represents the finger travel speed
         // required.
-        let mut hand_total = [0u64; 2];
+        let mut hand_total = [0u64; 3];
         for (&count, props) in
-                scores.heatmap.iter().zip(self.key_props.iter()).take(30) {
+                scores.heatmap.iter().zip(self.key_props.iter()) {
             scores.finger_travel[props.finger as usize] +=
                 props.d_abs as f64 * count as f64;
 
@@ -1027,13 +1067,15 @@ impl KuehlmakModel {
             let k0 = scores.token_keymap[t0] as usize;
             let k1 = scores.token_keymap[t1] as usize;
 
-            if k0 >= 30 || k1 >= 30 {
+            if k0 >= 31 || k1 >= 31 {
                 continue;
             }
 
+            let props = &self.key_props[k1];
+            if let Hand::Any = props.hand {continue}
             let bigram_type = self.bigram_types[k0][k1] as usize;
 
-            scores.bigram_counts[bigram_type][k0 % 10 / 5] += count;
+            scores.bigram_counts[bigram_type][props.hand as usize] += count;
             if let Some(v) = scores.bigram_lists[bigram_type].as_mut() {
                 v.push((bigram, count))
             }
@@ -1041,14 +1083,12 @@ impl KuehlmakModel {
             if bigram_type == BIGRAM_SFB || bigram_type == BIGRAM_SAMEKEY {
                 // Correct travel estimate: going to k1 not from home
                 // position but from k0 instead.
-                let props = &self.key_props[k1];
-
                 scores.finger_travel[props.finger as usize] +=
                     (props.d_rel[k0]*4.0 - props.d_abs) as f64 * count as f64;
             }
 
             if bigram_type != BIGRAM_ALTERNATE {
-                same_hand[k0 % 10 / 5] += count;
+                same_hand[props.hand as usize] += count;
             }
         }
         for count in scores.bigram_counts.iter_mut().flatten() {
@@ -1094,13 +1134,15 @@ impl KuehlmakModel {
             let k1 = scores.token_keymap[t1] as usize;
             let k2 = scores.token_keymap[t2] as usize;
 
-            if k0 >= 30 || k1 >= 31 || k2 >= 30 {
+            if k0 >= 31 || k1 >= 31 || k2 >= 31 {
                 continue;
             }
 
+            let props = &self.key_props[k2];
+            if let Hand::Any = props.hand {continue}
             let trigram_type = self.trigram_types[k0][k1][k2] as usize;
 
-            scores.trigram_counts[trigram_type][k0 % 10 / 5] += count;
+            scores.trigram_counts[trigram_type][props.hand as usize] += count;
             if let Some(v) = scores.trigram_lists[trigram_type].as_mut() {
                 v.push((trigram, count))
             }
@@ -1109,8 +1151,6 @@ impl KuehlmakModel {
                     trigram_type <= TRIGRAM_SHD_SFB {
                 // Correct travel estimate: going to k2 not from home
                 // position but from k0 instead.
-                let props = &self.key_props[k2];
-
                 scores.finger_travel[props.finger as usize] +=
                     (props.d_rel[k0]*2.0 - props.d_abs) as f64 * count as f64;
             }
@@ -1161,6 +1201,7 @@ impl KuehlmakModel {
             self.params.weights.ring_finger,
             self.params.weights.middle_finger,
             self.params.weights.index_finger,
+            255, // Thumb has high weight because it doesn't travel anyways
             self.params.weights.index_finger,
             self.params.weights.middle_finger,
             self.params.weights.ring_finger,
@@ -1175,9 +1216,9 @@ impl KuehlmakModel {
     }
 
     fn score_imbalance(&self, scores: &mut KuehlmakScores) {
-        let mut hand_weight = [0, 0];
+        let mut hand_weight = [0; 3];
         for (&count, props) in
-                scores.heatmap.iter().zip(self.key_props.iter()).take(30) {
+                scores.heatmap.iter().zip(self.key_props.iter()) {
             hand_weight[props.hand as usize] += count;
         }
         let balance = if hand_weight[0] > hand_weight[1] {
@@ -1236,9 +1277,10 @@ impl KuehlmakModel {
 
         let mut bigram_types = [[BIGRAM_ALTERNATE as u8; 31]; 31];
         for (i, &KeyProps {hand: h0, finger: f0, is_stretch: s0, ..})
-                in key_props.iter().enumerate().take(30) {
+                in key_props.iter().enumerate() {
+            if let Hand::Any = h0 {continue}
             for (j, &KeyProps {hand: h1, finger: f1, is_stretch: s1, ..})
-                    in key_props.iter().enumerate().take(30) {
+                    in key_props.iter().enumerate() {
                 if h0 != h1 {
                     continue;
                 }
@@ -1249,7 +1291,8 @@ impl KuehlmakModel {
                     bigram_types[i][j] = BIGRAM_SAMEKEY as u8;
                 } else if f0 == f1 {
                     bigram_types[i][j] = BIGRAM_SFB as u8;
-                } else if s0 || s1 {
+                } else if (s0 || s1) &&
+                          f0 != Finger::Th && f1 != Finger::Th {
                     let d = (f0 as i8 - f1 as i8).abs() as u8;
                     bigram_types[i][j] = match d {
                         _ if s0 && s1 || scissors.binary_search(&b).is_ok()
@@ -1260,9 +1303,9 @@ impl KuehlmakModel {
                     } as u8;
                 } else if scissors.binary_search(&b).is_ok() {
                     bigram_types[i][j] = BIGRAM_SCISSOR as u8;
-                } else if f0 == 1 || f0 == 6 || // Rolling away from ring finger or
-                          f0 == 3 || f0 == 4 || // Involving index finger
-                          f1 == 3 || f1 == 4 {
+                } else if f0 == Finger::Lr || f0 == Finger::Rr  || // Rolling away from ring finger or
+                         (f0 >= Finger::Li && f0 <= Finger::Ri) || // Involving index fingers or thumbs
+                         (f1 >= Finger::Li && f1 <= Finger::Ri) {
                     bigram_types[i][j] = BIGRAM_DROLL as u8;
                 } else {
                     bigram_types[i][j] = BIGRAM_UROLL as u8;
@@ -1272,12 +1315,14 @@ impl KuehlmakModel {
 
         let mut trigram_types = [[[TRIGRAM_NONE as u8; 31]; 31]; 31];
         for (i, &KeyProps {hand: h0, finger: f0, ..})
-                in key_props.iter().enumerate().take(30) {
+                in key_props.iter().enumerate() {
+            if let Hand::Any = h0 {continue}
             for (j, &KeyProps {hand: h1, finger: f1, ..})
-                    in key_props.iter().enumerate() { // Space is only interesting on the middle key
+                    in key_props.iter().enumerate() {
                 for (k, &KeyProps {hand: h2, finger: f2, ..})
-                        in key_props.iter().enumerate().take(30) {
-                    if h0 == h2 && (h0 != h1 || j == 30) { // Disjointed same-hand bigrams
+                        in key_props.iter().enumerate() {
+                    if let Hand::Any = h2 {continue}
+                    if h0 == h2 && h0 != h1 { // Disjointed same-hand bigrams
                         trigram_types[i][j][k] = match bigram_types[i][k] as usize {
                             BIGRAM_SAMEKEY => TRIGRAM_D_SAMEKEY,
                             BIGRAM_SFB     => TRIGRAM_D_SFB,
@@ -1289,7 +1334,7 @@ impl KuehlmakModel {
                             BIGRAM_SCISSOR => TRIGRAM_D_SCISSOR,
                             _              => panic!("Unexpected disjointed same-hand trigram")
                         } as u8;
-                    } else if h0 == h1 && h1 == h2 && j < 30 { // Same-hand trigrams
+                    } else if h0 == h1 && h1 == h2 { // Same-hand trigrams
                         if i == k && f0 != f1 { // Disjointed same-key
                             trigram_types[i][j][k] = TRIGRAM_SHD_SAMEKEY as u8;
                         } else if f0 == f2 && f0 != f1 { // Disjointed same-finger bigrams
@@ -1341,31 +1386,31 @@ impl KuehlmakModel {
         assert!(row < 3 || (row == 3 && col == 0));
 
         let (hand, finger, weight, home_col, is_stretch) = match params.board_type {
-            _ if row == 3 => (RIGHT, R_THUMB, 0, 0.0, false), // Space uses the right thumb for now
+            _ if row == 3 => (params.space_thumb, Finger::Th, 0, 0.0, false),
             KeyboardType::Hex | KeyboardType::HexStag if row == 0 => match col {
-                0     => (LEFT,  L_PINKY,  params.weights.pinky_finger,  0.0, true),
-                1     => (LEFT,  L_PINKY,  params.weights.pinky_finger,  0.0, false),
-                2     => (LEFT,  L_RING,   params.weights.ring_finger,   1.0, false),
-                3     => (LEFT,  L_MIDDLE, params.weights.middle_finger, 2.0, false),
-                4     => (LEFT,  L_INDEX,  params.weights.index_finger,  3.0, false),
-                5     => (RIGHT, R_INDEX,  params.weights.index_finger,  6.0, false),
-                6     => (RIGHT, R_MIDDLE, params.weights.middle_finger, 7.0, false),
-                7     => (RIGHT, R_RING,   params.weights.ring_finger,   8.0, false),
-                8     => (RIGHT, R_PINKY,  params.weights.pinky_finger,  9.0, false),
-                9     => (RIGHT, R_PINKY,  params.weights.pinky_finger,  9.0, true),
+                0     => (Hand::L, Finger::Lp, params.weights.pinky_finger,  0.0, true),
+                1     => (Hand::L, Finger::Lp, params.weights.pinky_finger,  0.0, false),
+                2     => (Hand::L, Finger::Lr, params.weights.ring_finger,   1.0, false),
+                3     => (Hand::L, Finger::Lm, params.weights.middle_finger, 2.0, false),
+                4     => (Hand::L, Finger::Li, params.weights.index_finger,  3.0, false),
+                5     => (Hand::R, Finger::Ri, params.weights.index_finger,  6.0, false),
+                6     => (Hand::R, Finger::Rm, params.weights.middle_finger, 7.0, false),
+                7     => (Hand::R, Finger::Rr, params.weights.ring_finger,   8.0, false),
+                8     => (Hand::R, Finger::Rp, params.weights.pinky_finger,  9.0, false),
+                9     => (Hand::R, Finger::Rp, params.weights.pinky_finger,  9.0, true),
                 _     => panic!("col out of range"),
             },
             _ => match col {
-                0     => (LEFT,  L_PINKY,  params.weights.pinky_finger,  0.0, false),
-                1     => (LEFT,  L_RING,   params.weights.ring_finger,   1.0, false),
-                2     => (LEFT,  L_MIDDLE, params.weights.middle_finger, 2.0, false),
-                3     => (LEFT,  L_INDEX,  params.weights.index_finger,  3.0, false),
-                4     => (LEFT,  L_INDEX,  params.weights.index_finger,  3.0, true),
-                5     => (RIGHT, R_INDEX,  params.weights.index_finger,  6.0, true),
-                6     => (RIGHT, R_INDEX,  params.weights.index_finger,  6.0, false),
-                7     => (RIGHT, R_MIDDLE, params.weights.middle_finger, 7.0, false),
-                8     => (RIGHT, R_RING,   params.weights.ring_finger,   8.0, false),
-                9     => (RIGHT, R_PINKY,  params.weights.pinky_finger,  9.0, false),
+                0     => (Hand::L, Finger::Lp, params.weights.pinky_finger,  0.0, false),
+                1     => (Hand::L, Finger::Lr, params.weights.ring_finger,   1.0, false),
+                2     => (Hand::L, Finger::Lm, params.weights.middle_finger, 2.0, false),
+                3     => (Hand::L, Finger::Li, params.weights.index_finger,  3.0, false),
+                4     => (Hand::L, Finger::Li, params.weights.index_finger,  3.0, true),
+                5     => (Hand::R, Finger::Ri, params.weights.index_finger,  6.0, true),
+                6     => (Hand::R, Finger::Ri, params.weights.index_finger,  6.0, false),
+                7     => (Hand::R, Finger::Rm, params.weights.middle_finger, 7.0, false),
+                8     => (Hand::R, Finger::Rr, params.weights.ring_finger,   8.0, false),
+                9     => (Hand::R, Finger::Rp, params.weights.pinky_finger,  9.0, false),
                 _     => panic!("col out of range"),
             },
         };
@@ -1377,10 +1422,14 @@ impl KuehlmakModel {
             KeyboardType::ANSI    => (&KEY_OFFSETS_ANSI, &KEY_COST_ANSI),
             KeyboardType::ISO     => (&KEY_OFFSETS_ISO, &KEY_COST_ISO),
         };
+        let h = match hand {
+            Hand::Any => 0usize,
+            _         => hand as usize,
+        };
 
         // Weigh horizontal offset more severely (factor 1.5).
-        let x = col as f32 - home_col + key_offsets[row][hand];
-        let y = row as f32 - 1.0;
+        let x = col as f32 - home_col + key_offsets[row][h];
+        let y = if row == 3 {0.0} else {row as f32 - 1.0};
         let d_abs = (x*x + y*y).sqrt();
 
         // Calculate relative distance to other keys on the same finger.
@@ -1389,7 +1438,7 @@ impl KuehlmakModel {
         d_rel[key] = 0.0;
 
         let mut calc_d_rel = |r: usize, c: usize| {
-            let dx = c as f32 - col as f32 + key_offsets[r][hand] - key_offsets[row][hand];
+            let dx = c as f32 - col as f32 + key_offsets[r][h] - key_offsets[row][h];
             let dy = r as f32 - row as f32;
             d_rel[(r * 10 + c)] = (dx*dx + dy*dy).sqrt();
         };
@@ -1403,28 +1452,14 @@ impl KuehlmakModel {
         calc_d_rel(3, 0);
 
         KeyProps {
-            hand: hand as u8,
-            finger: finger as u8,
+            hand,
+            finger,
             is_stretch,
             d_abs, d_rel,
             cost: key_cost[key] as u16 * weight as u16,
         }
     }
 }
-
-// Constants for indexing some arrays, so can't use enum variants
-const LEFT:     usize = 0;
-const RIGHT:    usize = 1;
-
-const L_PINKY:  usize = 0;
-const L_RING:   usize = 1;
-const L_MIDDLE: usize = 2;
-const L_INDEX:  usize = 3;
-const R_INDEX:  usize = 4;
-const R_MIDDLE: usize = 5;
-const R_RING:   usize = 6;
-const R_PINKY:  usize = 7;
-const R_THUMB:  usize = 8;
 
 const BIGRAM_ALTERNATE:  usize = 0;
 const BIGRAM_SAMEKEY:    usize = 1;
@@ -1456,10 +1491,10 @@ const TRIGRAM_NUM_TYPES:   usize = 14;
 
 type KeyOffsets = [[f32; 2]; 4];
 
-const KEY_OFFSETS_ORTHO: KeyOffsets = [[ 0.0,   0.0 ], [0.0, 0.0], [ 0.0, 0.0], [4.0, 5.0]];
-const KEY_OFFSETS_HEX:   KeyOffsets = [[-1.0,   1.0 ], [0.0, 0.0], [ 0.0, 0.0], [4.0, 5.0]];
-const KEY_OFFSETS_ANSI:  KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [ 0.5, 0.5], [4.0, 5.0]];
-const KEY_OFFSETS_ISO:   KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [-0.5, 0.5], [4.0, 5.0]];
+const KEY_OFFSETS_ORTHO: KeyOffsets = [[ 0.0,   0.0 ], [0.0, 0.0], [ 0.0, 0.0], [0.0, 0.0]];
+const KEY_OFFSETS_HEX:   KeyOffsets = [[-1.0,   1.0 ], [0.0, 0.0], [ 0.0, 0.0], [0.0, 0.0]];
+const KEY_OFFSETS_ANSI:  KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [ 0.5, 0.5], [0.0, 0.0]];
+const KEY_OFFSETS_ISO:   KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [-0.5, 0.5], [0.0, 0.0]];
 const KEY_COST_ORTHO: [u8; 31] = [
     4,  2,  2,  4, 12, 12,  4,  2,  2,  4,
     1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
