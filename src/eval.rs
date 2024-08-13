@@ -1287,29 +1287,31 @@ impl KuehlmakModel {
 
                 let b = (i as u8, j as u8);
 
-                if i == j {
-                    bigram_types[i][j] = BIGRAM_SAMEKEY as u8;
+                bigram_types[i][j] = if i == j {
+                    BIGRAM_SAMEKEY
                 } else if f0 == f1 {
-                    bigram_types[i][j] = BIGRAM_SFB as u8;
+                    BIGRAM_SFB
                 } else if (s0 || s1) &&
                           f0 != Finger::Th && f1 != Finger::Th {
-                    let d = (f0 as i8 - f1 as i8).abs() as u8;
-                    bigram_types[i][j] = match d {
+                    match (f0 as i8 - f1 as i8).abs() as u8 {
                         _ if s0 && s1 || scissors.binary_search(&b).is_ok()
                             => BIGRAM_LSB1,
                         1 => BIGRAM_LSB1,
                         2 => BIGRAM_LSB2,
                         _ => BIGRAM_LSB3,
-                    } as u8;
+                    }
                 } else if scissors.binary_search(&b).is_ok() {
-                    bigram_types[i][j] = BIGRAM_SCISSOR as u8;
-                } else if f0 == Finger::Lr || f0 == Finger::Rr  || // Rolling away from ring finger or
-                         (f0 >= Finger::Li && f0 <= Finger::Ri) || // Involving index fingers or thumbs
-                         (f1 >= Finger::Li && f1 <= Finger::Ri) {
-                    bigram_types[i][j] = BIGRAM_DROLL as u8;
+                    BIGRAM_SCISSOR
+                } else if f0 == Finger::Lr || f0 == Finger::Rr { // Rolling away from ring finger or
+                    BIGRAM_DROLL
+                } else if (f0 >= Finger::Li && f0 <= Finger::Ri) || // Involving index fingers or thumbs
+                          (f1 >= Finger::Li && f1 <= Finger::Ri) {
+                    let a = (f0 as i8 - Finger::Th as i8).abs();
+                    let b = (f1 as i8 - Finger::Th as i8).abs();
+                    if a > b {BIGRAM_DROLL} else {BIGRAM_UROLL}
                 } else {
-                    bigram_types[i][j] = BIGRAM_UROLL as u8;
-                }
+                    BIGRAM_UROLL
+                } as u8;
             }
         }
 
