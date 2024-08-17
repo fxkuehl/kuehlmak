@@ -366,8 +366,8 @@ fn rank_command(sub_m: &ArgMatches) {
 }
 
 #[allow(clippy::comparison_chain)]
-fn textstats_command(sub_m: &ArgMatches) {
-    let text_filename = sub_m.value_of("text").map(|p| p.as_ref());
+fn corpus_command(sub_m: &ArgMatches) {
+    let text_filename = sub_m.value_of("input").map(|p| p.as_ref());
     let text = text_from_file(text_filename);
     let min: u64 = match sub_m.value_of("min") {
         Some(number) => number.parse().unwrap_or_else(|e| {
@@ -423,8 +423,8 @@ fn main() {
         (version: "0.1")
         (author: "Felix Kuehling <felix.kuehling@gmail.com>")
         (about: "Keyboard layout generator and analyzer")
-        (@subcommand textstats =>
-            (about: "Compute text statistics, write JSON to stdout")
+        (@subcommand corpus =>
+            (about: "Compute corpus statistics, write JSON to stdout")
             (version: "0.1")
             (@arg alphabet: -a --alphabet +takes_value
                 "Filter stats only for those symbols\n(e.g. '-_a-z;,./<>?:')")
@@ -432,7 +432,7 @@ fn main() {
                 "Drop symbols and n-grams with lower count")
             (@arg pretty: --pretty
                 "Pretty-print JSON output")
-            (@arg text: -t --text +takes_value
+            (@arg input: -i --input +takes_value
                 "Text or JSON file to use as input [stdin]")
         )
         (@subcommand anneal =>
@@ -498,7 +498,7 @@ fn main() {
                                           .unwrap()),
         Some("rank") => rank_command(app_m.subcommand_matches("rank")
                                               .unwrap()),
-        Some("textstats") => textstats_command(app_m.subcommand_matches("textstats")
+        Some("corpus") => corpus_command(app_m.subcommand_matches("corpus")
                                                     .unwrap()),
         Some(unknown) => panic!("Unhandled subcommand: {}", unknown),
         None => {
