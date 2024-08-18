@@ -51,8 +51,8 @@ where M: EvalModel<'a>
 
     pub fn write_stats<W>(&self, w: &mut W) -> io::Result<()>
     where W: io::Write {
-        writeln!(w, "{:.4} {:.10} {:.3} {:6.4}",
-                 self.noise, self.noise_step, self.precision,
+        writeln!(w, "step:{} nois:{:.4} dNoi:{:.10} prec:{:.3} best:{:6.4}",
+                 self.steps, self.noise, self.noise_step, self.precision,
                  self.best_scores.total())
     }
 }
