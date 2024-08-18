@@ -847,25 +847,26 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
     fn total(&self) -> f64 {self.total + self.constraints}
 
     fn get_scores(&self) -> Vec<f64> {
+        let norm = 1000.0 / self.strokes as f64;
         vec![
-            self.total,
-            self.constraints,
-            self.effort,
-            self.travel,
-            self.imbalance,
-            Self::get_lr_score_u(self.bigram_counts[BIGRAM_DROLL]),
-            Self::get_lr_score_f(self.urolls),
-            Self::get_lr_score_f(self.wlsbs),
-            Self::get_lr_score_u(self.bigram_counts[BIGRAM_SCISSOR]),
-            Self::get_lr_score_u(self.bigram_counts[BIGRAM_SFB]),
-            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_D_DROLL]),
-            Self::get_lr_score_f(self.d_urolls),
-            Self::get_lr_score_f(self.d_wlsbs),
-            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_D_SCISSOR]),
-            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_D_SFB]),
-            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_RROLL]),
-            Self::get_lr_score_u(self.redirects),
-            Self::get_lr_score_u(self.contorts),
+            self.total * 1000.0,
+            self.constraints * 1000.0,
+            self.effort * 1000.0,
+            self.travel * 1000.0,
+            self.imbalance * 100.0,
+            Self::get_lr_score_u(self.bigram_counts[BIGRAM_DROLL]) * norm,
+            Self::get_lr_score_f(self.urolls) * norm,
+            Self::get_lr_score_f(self.wlsbs) * norm,
+            Self::get_lr_score_u(self.bigram_counts[BIGRAM_SCISSOR]) * norm,
+            Self::get_lr_score_u(self.bigram_counts[BIGRAM_SFB]) * norm,
+            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_D_DROLL]) * norm,
+            Self::get_lr_score_f(self.d_urolls) * norm,
+            Self::get_lr_score_f(self.d_wlsbs) * norm,
+            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_D_SCISSOR]) * norm,
+            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_D_SFB]) * norm,
+            Self::get_lr_score_u(self.trigram_counts[TRIGRAM_RROLL]) * norm,
+            Self::get_lr_score_u(self.redirects) * norm,
+            Self::get_lr_score_u(self.contorts) * norm,
         ]
     }
     fn get_score_names() -> BTreeMap<String, usize> {

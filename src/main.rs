@@ -370,6 +370,88 @@ fn rank_command(sub_m: &ArgMatches) {
     }
 }
 
+fn stats_command(sub_m: &ArgMatches) {
+    let mut config = sub_m.value_of("config").map(config_from_file);
+    let mut layouts: Vec<_> = Vec::new();
+    let dir = sub_m.value_of("dir").unwrap();
+    let paths = get_dir_paths(dir).unwrap();
+    for path in paths.into_iter().filter(|p| p.is_file()) {
+        match path.extension().and_then(OsStr::to_str) {
+            Some("kbl") => {
+                layouts.push(layout_from_file(&path));
+            },
+            Some("toml")
+                    if config.is_none() &&
+                       path.file_name().unwrap() == "config.toml" => {
+                config = Some(config_from_file(&path));
+            },
+            _ => (), // ignore other files
+        }
+    }
+
+    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
+                    || config.as_ref().and_then(|c| c.text_file.as_deref()));
+    let text = text_from_file(text_filename);
+    // Not filtering with any alphabet because different layouts may use
+    // different alphabets.
+
+    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
+    let mut score_name_map = KuehlmakScores::get_score_names();
+    score_name_map.insert("popularity".to_string(), score_name_map.len());
+    let mut population = 0usize;
+
+    let mut scores: Vec<_> = layouts.iter().map(|(l, p)| {
+        let s = kuehlmak_model.eval_layout(l, &text, 1.0);
+        let mut cs = s.get_scores();
+        cs.push(*p as f64);
+        population += *p;
+        (s, cs)
+    }).collect();
+
+    println!();
+    println!("Number of unique/total layouts: {}/{}", scores.len(), population);
+    println!();
+
+    if scores.len() == 0 {
+        return;
+    }
+
+    // Sort scores by different criteria and compute stats
+    println!("{:>12}: {:^6} {:^6} {:^6} {:^6} {:^6} {:^6} {:^6}",
+             "Score", "Min", "Lower", "Median", "Upper", "Max", "IQR", "Range");
+    println!("---------------------------------------------------------------");
+    let score_names = sub_m.value_of("scores").unwrap_or("total");
+    for name in score_names.split(',') {
+        if let Some(&score) = score_name_map.get(name) {
+            let mut sorted_scores: Vec<_> = scores.iter_mut().collect();
+            sorted_scores.sort_by(|(_, a), (_, b)|
+                                  a[score].partial_cmp(&b[score]).unwrap());
+            let mut quartiles = [0f64; 5];
+            quartiles[0] = sorted_scores[0].1[score];
+            let mut c = 0usize;
+            for (_, cs) in sorted_scores {
+                let q0 = c * 4 / population;
+                c += *cs.last().unwrap() as usize;
+                let q1 = c * 4 / population;
+                for q in q0..q1 {
+                    quartiles[q+1] = cs[score];
+                }
+            }
+            println!("{:>12}: {:6.1} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1}",
+                     name, quartiles[0], quartiles[1], quartiles[2],
+                     quartiles[3], quartiles[4], quartiles[3] - quartiles[1],
+                     quartiles[4] - quartiles[0]);
+        } else {
+            eprintln!("Unknown score name {}. Valid names are:", name);
+            for name in score_name_map.keys() {
+                eprintln!("  {}", name);
+            }
+            process::exit(1);
+        }
+    }
+    println!();
+}
+
 #[allow(clippy::comparison_chain)]
 fn corpus_command(sub_m: &ArgMatches) {
     let text_filename = sub_m.value_of("input").map(|p| p.as_ref());
@@ -494,6 +576,18 @@ fn main() {
             (@arg show_scores: --("show-scores")
                 "Print scores instead of letter and n-gram counts")
         )
+        (@subcommand stats =>
+            (about: "Print population statistics")
+            (version: "0.1")
+            (@arg dir: -d --dir +takes_value +required
+                "DB and configuration directory")
+            (@arg config: -c --config +takes_value
+                "Configuration file [<dir>/config.toml]")
+            (@arg text: -t --text +takes_value
+                "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
+            (@arg scores: -s --scores +takes_value
+                "Comma-separated list of scores to rank layouts by")
+        )
     ).get_matches();
 
     match app_m.subcommand_name() {
@@ -502,6 +596,8 @@ fn main() {
         Some("eval") => eval_command(app_m.subcommand_matches("eval")
                                           .unwrap()),
         Some("rank") => rank_command(app_m.subcommand_matches("rank")
+                                              .unwrap()),
+        Some("stats") => stats_command(app_m.subcommand_matches("stats")
                                               .unwrap()),
         Some("corpus") => corpus_command(app_m.subcommand_matches("corpus")
                                                     .unwrap()),
