@@ -301,6 +301,11 @@ fn rank_command(sub_m: &ArgMatches) {
         (s, cs, 0usize, vec![0usize; score_name_map.len()])
     }).collect();
 
+    if scores.len() == 0 {
+        println!("No layouts found.");
+        return;
+    }
+
     // Sort scores by different criteria and add up rankings per layout
     let score_names = sub_m.value_of("scores").unwrap_or("total");
     for name in score_names.split(',') {
