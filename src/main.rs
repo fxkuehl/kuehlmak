@@ -370,6 +370,33 @@ fn rank_command(sub_m: &ArgMatches) {
     }
 }
 
+fn estimate_population_size(u: usize, k: usize) -> usize {
+    if u >= k {
+        return usize::MAX;
+    }
+    let mut n = u;
+    let mut m = n;
+    let unique = |n: f64, k: usize| n * (1.0 - ((n - 1.0) / n).powi(k as i32));
+    while unique(m as f64, k) < u as f64 {
+        if m == usize::MAX {
+            return m;
+        } else if m >= usize::MAX / 2 {
+            m = usize::MAX;
+        } else {
+            m *= 2;
+        }
+    }
+    while n+1 < m {
+        let mid = (n + m) / 2;
+        if unique(mid as f64, k) < u as f64 {
+            n = mid;
+        } else {
+            m = mid;
+        }
+    }
+    n
+}
+
 fn stats_command(sub_m: &ArgMatches) {
     let mut config = sub_m.value_of("config").map(config_from_file);
     let mut layouts: Vec<_> = Vec::new();
@@ -409,7 +436,11 @@ fn stats_command(sub_m: &ArgMatches) {
     }).collect();
 
     println!();
-    println!("Number of unique/total layouts: {}/{}", scores.len(), population);
+    println!("Unique/total layouts found: {}/{}", scores.len(), population);
+    if scores.len() < population {
+        println!("Unique layouts expected: {}",
+                 estimate_population_size(scores.len(), population));
+    }
     println!();
 
     if scores.len() == 0 {
