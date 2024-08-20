@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 use std::ops::Mul;
 use std::ops::RangeInclusive;
 use serde::{Serialize, Deserialize};
+use rand::Rng;
+use rand::rngs::SmallRng;
 
 // Layout: 2 chars per key (normal/shifted), 10 keys per row, 3 rows
 pub type Layout = [[char; 2]; 30];
@@ -313,6 +315,7 @@ pub trait EvalModel<'a> {
     fn eval_layout(&'a self, layout: &Layout, ts: &TextStats,
                    precision: f64) -> Self::Scores;
     fn key_cost_ranking(&'a self) -> &'a [usize; 30];
+    fn neighbor(&'a self, rng: &mut SmallRng, layout: &Layout) -> Layout;
     fn is_symmetrical(&'a self) -> bool;
 }
 
@@ -567,6 +570,7 @@ pub struct KuehlmakModel {
     bigram_types: [[u8; 31]; 31],
     trigram_types: [[[u8; 31]; 31]; 31],
     key_cost_ranking: [usize; 30],
+    finger_keys: [Vec<u8>; Finger::Num as usize],
 }
 
 impl<'a> EvalScores for KuehlmakScores<'a> {
@@ -986,6 +990,37 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
         scores
     }
     fn key_cost_ranking(&'a self) -> &'a [usize; 30] {&self.key_cost_ranking}
+    fn neighbor(&'a self, rng: &mut SmallRng, layout: &Layout) -> Layout {
+        let mut layout = *layout;
+        let op = rng.gen::<f64>() * 9.0;
+        if op < 8.0 { // Swap any random keys
+            let r = rng.gen_range(0..(30 * 29));
+            let (a, b) = (r / 29, r % 29);
+            let b = (a + b + 1) % 30;
+            layout.swap(a, b);
+        } else { // Swap fingers
+            let r = rng.gen_range(0..(8 * 7));
+            let (f0, f1) = (r / 7, r % 7);
+            let f1 = (f0 + f1 + 1) % 8;
+            let f0 = if f0 < Finger::Th as usize {f0} else {f0 + 1};
+            let f1 = if f1 < Finger::Th as usize {f1} else {f1 + 1};
+            let (l0, l1) = (self.finger_keys[f0].len(), self.finger_keys[f1].len());
+            let (r0, r1) = if l0 == l1 {
+                (0..l0, 0..l1)
+            } else if l0 < l1 {
+                let o = rng.gen_range(0..(l1 - l0 + 1));
+                (0..l0, o..(o + l0))
+            } else {
+                let o = rng.gen_range(0..(l0 - l1 + 1));
+                (o..(o + l1), 0..l1)
+            };
+            for (a, b) in r0.into_iter().zip(r1.into_iter()) {
+                layout.swap(self.finger_keys[f0][a] as usize,
+                            self.finger_keys[f1][b] as usize);
+            }
+        }
+        layout
+    }
     fn is_symmetrical(&'a self) -> bool {
         match self.params.board_type {
             KeyboardType::ISO => false,
@@ -1373,12 +1408,27 @@ impl KuehlmakModel {
         }
         key_cost_ranking.sort_by_key(|&k| key_props[k].cost);
 
+        let mut finger_keys = [
+            vec![], vec![], vec![], vec![], vec![],
+            vec![], vec![], vec![], vec![],
+        ];
+        // Enumerate keys symmetrically
+        for row in 0..3 {
+            for col in 0..5 {
+                for i in [row * 10 + col, row * 10 + 9 - col] {
+                    let k = key_props[i];
+                    finger_keys[k.finger as usize].push(i as u8);
+                }
+            }
+        }
+
         KuehlmakModel {
             params,
             key_props,
             bigram_types,
             trigram_types,
             key_cost_ranking,
+            finger_keys
         }
     }
 
