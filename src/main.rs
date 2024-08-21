@@ -448,30 +448,44 @@ fn stats_command(sub_m: &ArgMatches) {
     }
 
     // Sort scores by different criteria and compute stats
-    println!("{:>12}: {:^6} {:^6} {:^6} {:^6} {:^6} {:^6} {:^6}",
-             "Score", "Min", "Lower", "Median", "Upper", "Max", "IQR", "Range");
-    println!("---------------------------------------------------------------");
+    println!("{:>12}: {:^9} {:^9} {:^6} {:^6} {:^6} {:^6} {:^6} {:^6}",
+             "Score", "Popular", "Min", "Lower", "Median", "Upper", "Max", "IQR", "Range");
+    println!("----------------------------------------------------------------------------");
     let score_names = sub_m.value_of("scores").unwrap_or("total");
     for name in score_names.split(',') {
-        if let Some(&score) = score_name_map.get(name) {
+        let raw_name = name.strip_prefix('+').unwrap_or(name);
+
+        if let Some(&score) = score_name_map.get(raw_name) {
             let mut sorted_scores: Vec<_> = scores.iter_mut().collect();
             sorted_scores.sort_by(|(_, a), (_, b)|
                                   a[score].partial_cmp(&b[score]).unwrap());
+            if name.starts_with('+') {
+                sorted_scores.reverse();
+            }
             let mut quartiles = [0f64; 5];
             quartiles[0] = sorted_scores[0].1[score];
             let mut c = 0usize;
+            let top_pop = *sorted_scores[0].1.last().unwrap() as usize;
+            let mut max_pop = 0;
+            let mut max_pop_score = 0.0;
+
             for (_, cs) in sorted_scores {
+                let p = *cs.last().unwrap() as usize;
                 let q0 = c * 4 / population;
-                c += *cs.last().unwrap() as usize;
+                c += p;
                 let q1 = c * 4 / population;
                 for q in q0..q1 {
                     quartiles[q+1] = cs[score];
                 }
+                if p > max_pop {
+                    max_pop = p;
+                    max_pop_score = cs[score];
+                }
             }
-            println!("{:>12}: {:6.1} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1}",
-                     name, quartiles[0], quartiles[1], quartiles[2],
-                     quartiles[3], quartiles[4], quartiles[3] - quartiles[1],
-                     quartiles[4] - quartiles[0]);
+            println!("{:>12}: {:6.1}×{:<2} {:6.1}×{:<2} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1}",
+                     name, max_pop_score, max_pop, quartiles[0], top_pop,
+                     quartiles[1], quartiles[2], quartiles[3], quartiles[4],
+                     (quartiles[3] - quartiles[1]).abs(), (quartiles[4] - quartiles[0]).abs());
         } else {
             eprintln!("Unknown score name {}. Valid names are:", name);
             for name in score_name_map.keys() {
