@@ -103,19 +103,21 @@ where M: EvalModel<'a>
             let scores = self.model.eval_layout(&layout, self.text,
                                                 self.precision);
 
-            if scores.total() > self.best_scores.total() + 5.0*self.noise {
+            if scores.total() > self.best_scores.total() + 100.0*self.noise {
                 // We're stuck in a local optimum with little hope of
                 // getting back out. Reset to last know global optimum
                 self.cur_layout = self.best_scores.layout();
                 continue;
             }
             if scores.total() >= self.best_scores.total() + self.noise {
+                // Reject score because it's above the noise level
                 continue;
             }
 
             self.cur_layout = layout;
 
             if scores.total() >= self.best_scores.total() {
+                // The layout was accepted but it's not a global improvement.
                 continue;
             }
 

@@ -448,9 +448,9 @@ fn stats_command(sub_m: &ArgMatches) {
     }
 
     // Sort scores by different criteria and compute stats
-    println!("{:>12}: {:^9} {:^9} {:^6} {:^6} {:^6} {:^6} {:^6} {:^6}",
+    println!("{:>12}: {:^10} {:^10} {:^6} {:^6} {:^6} {:^6} {:^6} {:^6}",
              "Score", "Popular", "Min", "Lower", "Median", "Upper", "Max", "IQR", "Range");
-    println!("----------------------------------------------------------------------------");
+    println!("------------------------------------------------------------------------------");
     let score_names = sub_m.value_of("scores").unwrap_or("total");
     for name in score_names.split(',') {
         let raw_name = name.strip_prefix('+').unwrap_or(name);
@@ -482,7 +482,7 @@ fn stats_command(sub_m: &ArgMatches) {
                     max_pop_score = cs[score];
                 }
             }
-            println!("{:>12}: {:6.1}×{:<2} {:6.1}×{:<2} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1}",
+            println!("{:>12}: {:6.1}×{:<3} {:6.1}×{:<3} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1} {:6.1}",
                      name, max_pop_score, max_pop, quartiles[0], top_pop,
                      quartiles[1], quartiles[2], quartiles[3], quartiles[4],
                      (quartiles[3] - quartiles[1]).abs(), (quartiles[4] - quartiles[0]).abs());

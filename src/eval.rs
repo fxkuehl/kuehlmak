@@ -1156,7 +1156,6 @@ impl KuehlmakModel {
         scores.hand_runs[1] = hand_total[1] as f64 /
                              (hand_total[1] - same_hand[1]) as f64;
 
-        let precision = precision.powi(2);
         let percentile = (ts.total_trigrams() as f64 * precision) as u64;
         let mut total = 0;
         for &(trigram, count, token) in ts.iter_trigrams() {
