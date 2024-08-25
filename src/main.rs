@@ -425,22 +425,49 @@ fn stats_command(sub_m: &ArgMatches) {
     let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
     let mut score_name_map = KuehlmakScores::get_score_names();
     score_name_map.insert("popularity".to_string(), score_name_map.len());
-    let mut population = 0usize;
+    let mut sample_size = 0usize;
 
     let mut scores: Vec<_> = layouts.iter().map(|(l, p)| {
         let s = kuehlmak_model.eval_layout(l, &text, 1.0);
         let mut cs = s.get_scores();
         cs.push(*p as f64);
-        population += *p;
+        sample_size += *p;
         (s, cs)
     }).collect();
 
-    println!();
-    println!("Unique/total layouts found: {}/{}", scores.len(), population);
-    if scores.len() < population {
-        println!("Unique layouts expected: {}",
-                 estimate_population_size(scores.len(), population));
+    // To estimate the expected number of unique layouts, a random draw from
+    // a finite population of solutions is not a good model because the
+    // annealing algorithm heavily favors some solutions over others, while it
+    // can infrequently draw less likely solutions from a total population
+    // that's practically infinite.
+    //
+    // Split the set of unique layouts found by popularity into the top
+    // quartile, middle half and bottom quartile. They can approximate
+    // separate populations, each of which the annealing algorithm can draw
+    // from with different probability. The top quartile represents the most
+    // popular/likely solutions with a relatively small total population.
+    // The bottom quartiles is a tail of one-off solutions that is drawn from
+    // a practically infinite population. Given enough time it could grow
+    // indefinitely, but it's not worth waiting for. The middle half is the
+    // one that has the largest growth potential in any remotely reasonable
+    // time frame.
+    scores.sort_by(|(_, a), (_, b)| a.last().partial_cmp(&b.last()).unwrap());
+    let mut part_pop = [(0usize, 0usize, 0usize); 3];
+    for (i, (_, cs)) in scores.iter().enumerate() {
+        let p = *cs.last().unwrap() as usize;
+        let q = (i * 2 + scores.len() / 2) / scores.len();
+        part_pop[q].0 += p;
+        part_pop[q].1 += 1;
     }
+    for (pop, uni, est) in part_pop.iter_mut() {
+        *est = estimate_population_size(*uni,
+                                        if *uni < *pop {*pop} else {*uni + 1});
+    }
+
+    println!();
+    println!("Unique/total layouts found: {}/{}, >{} unique layouts expected",
+             scores.len(), sample_size,
+             part_pop[0].1*2 + part_pop[1].2 + part_pop[2].2);
     println!();
 
     if scores.len() == 0 {
@@ -471,9 +498,9 @@ fn stats_command(sub_m: &ArgMatches) {
 
             for (_, cs) in sorted_scores {
                 let p = *cs.last().unwrap() as usize;
-                let q0 = c * 4 / population;
+                let q0 = c * 4 / sample_size;
                 c += p;
-                let q1 = c * 4 / population;
+                let q1 = c * 4 / sample_size;
                 for q in q0..q1 {
                     quartiles[q+1] = cs[score];
                 }
