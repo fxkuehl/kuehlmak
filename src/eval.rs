@@ -68,6 +68,18 @@ pub fn layout_from_str(text: &str) -> Result<Layout, String> {
         return Err(format!("Found only {} rows. Expected 3 rows",
                            last_line+1));
     }
+    let mut symbols: Vec<char> = layout.iter().flatten().copied().collect();
+    symbols.sort_unstable();
+    let (dups, _) = symbols.into_iter()
+                           .fold((String::new(), '\0'), |(mut dups, prev), c| {
+        if prev == c {
+            dups.push(c)
+        }
+        (dups, c)
+    });
+    if dups.len() > 0 {
+        return Err(format!("Duplicated symbols in layout: '{}'", dups));
+    }
     Ok(layout)
 }
 
@@ -139,22 +151,12 @@ pub mod serde_layout {
         fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
         where E: de::Error {
             if s.lines().count() >= 3 { // Try to parse it as an inline layout
-                match layout_from_str(s) {
-                    Ok(layout) => Ok(Some(layout)),
-                    Err(_) => Err(de::Error::invalid_value(Unexpected::Str(s),
-                                                           &self)),
-                }
+                layout_from_str(s).map_err(de::Error::custom)
             } else {
-                match fs::read_to_string(s) {
-                    Ok(string) => match layout_from_str(&string) {
-                        Ok(layout) => Ok(Some(layout)),
-                        Err(_) => Err(de::Error::invalid_value(
-                                      Unexpected::Str(&string), &self)),
-                    },
-                    Err(_) => Err(de::Error::invalid_value(Unexpected::Str(s),
-                                                           &self)),
-                }
-            }
+                fs::read_to_string(s)
+                    .map_err(|_| de::Error::invalid_value(Unexpected::Str(s), &self))
+                    .and_then(|s| layout_from_str(&s).map_err(de::Error::custom))
+            }.map(Some)
         }
     }
 
