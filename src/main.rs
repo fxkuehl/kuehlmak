@@ -122,20 +122,23 @@ fn anneal_command(sub_m: &ArgMatches) {
     let db_config: PathBuf = [dir,"config.toml".as_ref()].into_iter().collect();
     let config = sub_m.value_of("config").map(Path::new)
                       .or(Some(db_config.as_path()).filter(|p| p.is_file()))
-                      .map(config_from_file);
+                      .map(config_from_file).unwrap_or_else(|| {
+        eprintln!("No configuration file found. Try creating './config.toml'.");
+        process::exit(1);
+    });
 
-    let layout = match config.as_ref().and_then(|c| c.initial_layout) {
+    let layout = match config.initial_layout {
         Some(layout) => layout,
         None => layout_from_str(QWERTY).unwrap(),
     };
 
-    let text = text_from_file(config.as_ref().map(|c| c.corpus.as_path()));
+    let text = text_from_file(Some(config.corpus.as_path()));
     let mut alphabet: Vec<_> = layout.iter().flatten().copied().collect();
     alphabet.push(' ');
     alphabet.sort();
     let text = text.filter(|c| alphabet.binary_search(&c).is_ok(), 1);
 
-    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
+    let kuehlmak_model = KuehlmakModel::new(Some(config.params));
 
     let shuffle = !sub_m.is_present("noshuffle");
     let steps: u64 = match sub_m.value_of("steps")
@@ -225,16 +228,19 @@ fn anneal_command(sub_m: &ArgMatches) {
 fn eval_command(sub_m: &ArgMatches) {
     let config = sub_m.value_of("config").map(Path::new)
                       .or(Some(Path::new("config.toml")).filter(|p| p.is_file()))
-                      .map(config_from_file);
+                      .map(config_from_file).unwrap_or_else(|| {
+        eprintln!("No configuration file found. Try creating './config.toml'.");
+        process::exit(1);
+    });
 
-    let text = text_from_file(config.as_ref().map(|c| c.corpus.as_path()));
+    let text = text_from_file(Some(config.corpus.as_path()));
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
 
     let verbose = sub_m.is_present("verbose");
     let show_scores = sub_m.is_present("show_scores");
 
-    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
+    let kuehlmak_model = KuehlmakModel::new(Some(config.params));
     let stdout = &mut io::stdout();
 
     for filename in sub_m.values_of("LAYOUT").into_iter().flatten() {
@@ -257,9 +263,15 @@ fn get_dir_paths(dir: &str) -> io::Result<Vec<PathBuf>> {
 }
 
 fn rank_command(sub_m: &ArgMatches) {
-    let mut config = sub_m.value_of("config").map(config_from_file);
     let mut layouts: Vec<_> = Vec::new();
     let dir = sub_m.value_of("dir").unwrap_or(".");
+    let db_config: PathBuf = [dir,"config.toml".as_ref()].into_iter().collect();
+    let config = sub_m.value_of("config").map(Path::new)
+                      .or(Some(db_config.as_path()).filter(|p| p.is_file()))
+                      .map(config_from_file).unwrap_or_else(|| {
+        eprintln!("No configuration file found. Try creating './config.toml'.");
+        process::exit(1);
+    });
     let paths = match get_dir_paths(dir) {
         Ok(paths) => paths,
         Err(e) => {
@@ -273,20 +285,15 @@ fn rank_command(sub_m: &ArgMatches) {
             Some("kbl") => {
                 layouts.push(layout_from_file(&path));
             },
-            Some("toml")
-                    if config.is_none() &&
-                       path.file_name().unwrap() == "config.toml" => {
-                config = Some(config_from_file(&path));
-            },
             _ => (), // ignore other files
         }
     }
 
-    let text = text_from_file(config.as_ref().map(|c| c.corpus.as_path()));
+    let text = text_from_file(Some(config.corpus.as_path()));
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
 
-    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
+    let kuehlmak_model = KuehlmakModel::new(Some(config.params));
     let mut score_name_map = KuehlmakScores::get_score_names();
     score_name_map.insert("popularity".to_string(), score_name_map.len());
 
@@ -394,9 +401,15 @@ fn estimate_population_size(u: usize, k: usize) -> usize {
 }
 
 fn stats_command(sub_m: &ArgMatches) {
-    let mut config = sub_m.value_of("config").map(config_from_file);
     let mut layouts: Vec<_> = Vec::new();
     let dir = sub_m.value_of("dir").unwrap_or(".");
+    let db_config: PathBuf = [dir,"config.toml".as_ref()].into_iter().collect();
+    let config = sub_m.value_of("config").map(Path::new)
+                      .or(Some(db_config.as_path()).filter(|p| p.is_file()))
+                      .map(config_from_file).unwrap_or_else(|| {
+        eprintln!("No configuration file found. Try creating './config.toml'.");
+        process::exit(1);
+    });
     let paths = match get_dir_paths(dir) {
         Ok(paths) => paths,
         Err(e) => {
@@ -410,20 +423,15 @@ fn stats_command(sub_m: &ArgMatches) {
             Some("kbl") => {
                 layouts.push(layout_from_file(&path));
             },
-            Some("toml")
-                    if config.is_none() &&
-                       path.file_name().unwrap() == "config.toml" => {
-                config = Some(config_from_file(&path));
-            },
             _ => (), // ignore other files
         }
     }
 
-    let text = text_from_file(config.as_ref().map(|c| c.corpus.as_path()));
+    let text = text_from_file(Some(config.corpus.as_path()));
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
 
-    let kuehlmak_model = KuehlmakModel::new(config.map(|c| c.params));
+    let kuehlmak_model = KuehlmakModel::new(Some(config.params));
     let mut score_name_map = KuehlmakScores::get_score_names();
     score_name_map.insert("popularity".to_string(), score_name_map.len());
     let mut sample_size = 0usize;
@@ -601,7 +609,7 @@ fn main() {
             (@arg dir: -d --dir +takes_value
                 "DB and configuration directory [current directory]")
             (@arg config: -c --config +takes_value
-                "Configuration file [<dir>/config.toml if present]")
+                "Configuration file [<dir>/config.toml]")
             (@arg noshuffle: --("no-shuffle")
                 "Don't shuffle initial layout")
             (@arg steps: -s --steps +takes_value
@@ -619,7 +627,7 @@ fn main() {
             (about: "Evaluate layouts")
             (version: "0.1")
             (@arg config: -c --config +takes_value
-                "Configuration file [./config.toml if present]")
+                "Configuration file [./config.toml]")
             (@arg verbose: -v --verbose
                 "Print extra information for each layout")
             (@arg LAYOUT: +multiple +required
@@ -633,7 +641,7 @@ fn main() {
             (@arg dir: -d --dir +takes_value
                 "DB and configuration directory [current directory]")
             (@arg config: -c --config +takes_value
-                "Configuration file [<dir>/config.toml if present]")
+                "Configuration file [<dir>/config.toml]")
             (@arg number: -n --number +takes_value
                 "Number of top-ranked layouts to output")
             (@arg scores: -s --scores +takes_value
@@ -647,9 +655,9 @@ fn main() {
             (@arg dir: -d --dir +takes_value
                 "DB and configuration directory [current directory]")
             (@arg config: -c --config +takes_value
-                "Configuration file [<dir>/config.toml if present]")
+                "Configuration file [<dir>/config.toml]")
             (@arg scores: -s --scores +takes_value
-                "Comma-separated list of scores to rank layouts by")
+                "Comma-separated list of scores to show stats for")
         )
     ).get_matches();
 
