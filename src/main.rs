@@ -1,6 +1,6 @@
 use kuehlmak::TextStats;
 use kuehlmak::{
-    layout_from_str, Layout,
+    layout_from_str, serde_layout, Layout,
     EvalModel, EvalScores,
     KuehlmakModel, KuehlmakParams, KuehlmakScores,
     Anneal
@@ -48,6 +48,8 @@ fn layout_from_file<P>(path: P) -> (Layout, usize)
 #[derive(Serialize, Deserialize)]
 struct Config {
     text_file: Option<PathBuf>,
+    #[serde(with = "serde_layout", default)]
+    initial_layout: Option<Layout>,
     #[serde(flatten)]
     params: KuehlmakParams,
 }
@@ -124,17 +126,10 @@ fn anneal_command(sub_m: &ArgMatches) {
                       .or(Some(db_config.as_path()).filter(|p| p.is_file()))
                       .map(config_from_file);
 
-    let layout = match sub_m.value_of("layout") {
-        Some(filename) => fs::read_to_string(filename).unwrap_or_else(|e| {
-            eprintln!("Failed to read layout file '{}': {}", filename, e);
-            process::exit(1)
-        }),
-        None => String::from(QWERTY),
+    let layout = match config.as_ref().and_then(|c| c.initial_layout) {
+        Some(layout) => layout,
+        None => layout_from_str(QWERTY).unwrap(),
     };
-    let layout = layout_from_str(&layout).unwrap_or_else(|e| {
-        eprintln!("Failed to parse layout: {}", e);
-        process::exit(1)
-    });
 
     let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
                     || config.as_ref().and_then(|c| c.text_file.as_deref()));
@@ -619,8 +614,6 @@ fn main() {
                 "Configuration file [<dir>/config.toml if present]")
             (@arg text: -t --text +takes_value
                 "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
-            (@arg layout: -l --layout +takes_value
-                "Initial layout filename [QWERTY]")
             (@arg noshuffle: --("no-shuffle")
                 "Don't shuffle initial layout")
             (@arg steps: -s --steps +takes_value

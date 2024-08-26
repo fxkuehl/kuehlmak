@@ -114,7 +114,7 @@ pub fn layout_to_filename(layout: &Layout) -> PathBuf {
     PathBuf::from(s)
 }
 
-mod serde_layout {
+pub mod serde_layout {
     use std::fs;
     use std::fmt;
     use serde::{Serializer, Deserializer, de, de::Visitor, de::Unexpected};
