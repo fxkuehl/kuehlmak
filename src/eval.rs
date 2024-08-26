@@ -313,7 +313,7 @@ pub trait EvalModel<'a> {
     type Scores: EvalScores + Clone;
 
     fn eval_layout(&'a self, layout: &Layout, ts: &TextStats,
-                   precision: f64) -> Self::Scores;
+                   precision: f64, extra: bool) -> Self::Scores;
     fn key_cost_ranking(&'a self) -> &'a [usize; 30];
     fn neighbor(&'a self, rng: &mut SmallRng, layout: &Layout) -> Layout;
     fn is_symmetrical(&'a self) -> bool;
@@ -910,9 +910,9 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
     type Scores = KuehlmakScores<'a>;
 
     fn eval_layout(&'a self, layout: &Layout, ts: &TextStats,
-                   precision: f64) -> Self::Scores {
-        let bl = || if precision >= 1.0 {Some(vec![])} else {None};
-        let tl = || if precision >= 1.0 {Some(vec![])} else {None};
+                   precision: f64, extra: bool) -> Self::Scores {
+        let bl = || if extra {Some(vec![])} else {None};
+        let tl = || if extra {Some(vec![])} else {None};
         let mut scores = KuehlmakScores {
             model: self,
             layout: *layout,

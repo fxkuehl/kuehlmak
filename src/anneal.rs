@@ -40,8 +40,8 @@ where M: EvalModel<'a>
             noise_floor: 0.001,
             precision: 0.0,
             cur_layout: layout,
-            best_scores: model.eval_layout(&layout, text, 0.0),
-            real_scores: model.eval_layout(&layout, text, 1.0),
+            best_scores: model.eval_layout(&layout, text, 0.0, false),
+            real_scores: model.eval_layout(&layout, text, 1.0, false),
             steps: 0,
             steps_per_iter,
             rng,
@@ -60,8 +60,8 @@ where M: EvalModel<'a>
 
         // Reevaluate the best known layout with updated precision
         self.best_scores = self.model.eval_layout(&self.best_scores.layout(),
-                                                  self.text,
-                                                  self.precision);
+                                                  self.text, self.precision,
+                                                  false);
     }
 }
 
@@ -101,7 +101,7 @@ where M: EvalModel<'a>
 
             let layout = self.model.neighbor(&mut self.rng, &self.cur_layout);
             let scores = self.model.eval_layout(&layout, self.text,
-                                                self.precision);
+                                                self.precision, false);
 
             if scores.total() > self.best_scores.total() + 100.0*self.noise {
                 // We're stuck in a local optimum with little hope of
@@ -121,7 +121,7 @@ where M: EvalModel<'a>
                 continue;
             }
 
-            let real_scores = self.model.eval_layout(&layout, self.text, 1.0);
+            let real_scores = self.model.eval_layout(&layout, self.text, 1.0, false);
             if real_scores.total() > self.real_scores.total() {
                 // The new layout is not actually an improvement. Increase
                 // precision. The adjustment is proportional to the

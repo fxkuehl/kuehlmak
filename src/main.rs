@@ -188,7 +188,7 @@ fn anneal_command(sub_m: &ArgMatches) {
 
         pool.execute(move || {
             let mut anneal = Anneal::new(&model, &text, layout, shuffle, steps);
-            let mut scores = model.eval_layout(&layout, &text, 1.0);
+            let mut scores = model.eval_layout(&layout, &text, 1.0, false);
 
             while let Some(s) = anneal.next() {
                 if progress {
@@ -204,6 +204,7 @@ fn anneal_command(sub_m: &ArgMatches) {
             }
 
             let mut w = Vec::new();
+            let scores = model.eval_layout(&scores.layout(), &text, 1.0, true);
             writeln!(&mut w).unwrap();
             scores.write(&mut w, show_scores).unwrap();
             tx.send(w).unwrap();
@@ -249,7 +250,7 @@ fn eval_command(sub_m: &ArgMatches) {
     for filename in sub_m.values_of("LAYOUT").into_iter().flatten() {
         let (layout, _) = layout_from_file(filename);
 
-        let scores = kuehlmak_model.eval_layout(&layout, &text, 1.0);
+        let scores = kuehlmak_model.eval_layout(&layout, &text, 1.0, verbose);
 
         println!("=== {} ===================", filename);
         scores.write(stdout, show_scores).unwrap();
@@ -295,7 +296,7 @@ fn rank_command(sub_m: &ArgMatches) {
     score_name_map.insert("popularity".to_string(), score_name_map.len());
 
     let mut scores: Vec<_> = layouts.iter().map(|(l, p)| {
-        let s = kuehlmak_model.eval_layout(l, &text, 1.0);
+        let s = kuehlmak_model.eval_layout(l, &text, 1.0, false);
         let mut cs = s.get_scores();
         cs.push(*p as f64);
         (s, cs, 0usize, vec![0usize; score_name_map.len()])
@@ -428,7 +429,7 @@ fn stats_command(sub_m: &ArgMatches) {
     let mut sample_size = 0usize;
 
     let mut scores: Vec<_> = layouts.iter().map(|(l, p)| {
-        let s = kuehlmak_model.eval_layout(l, &text, 1.0);
+        let s = kuehlmak_model.eval_layout(l, &text, 1.0, false);
         let mut cs = s.get_scores();
         cs.push(*p as f64);
         sample_size += *p;
