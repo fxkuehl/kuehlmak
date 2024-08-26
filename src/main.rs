@@ -47,7 +47,7 @@ fn layout_from_file<P>(path: P) -> (Layout, usize)
 
 #[derive(Serialize, Deserialize)]
 struct Config {
-    text_file: Option<PathBuf>,
+    corpus: PathBuf,
     #[serde(with = "serde_layout", default)]
     initial_layout: Option<Layout>,
     #[serde(flatten)]
@@ -75,12 +75,10 @@ fn config_from_file<P>(path: P) -> Config
                   path.as_ref().display(), e);
         process::exit(1)
     });
-    if let Some(path) = config.text_file.as_mut() {
-        *path = path.canonicalize().unwrap_or_else(|e| {
-            eprintln!("Invalid path '{}': {}", path.display(), e);
-            process::exit(1);
-        });
-    }
+    config.corpus = config.corpus.canonicalize().unwrap_or_else(|e| {
+        eprintln!("Invalid path '{}': {}", config.corpus.display(), e);
+        process::exit(1);
+    });
     env::set_current_dir(&prev_dir).expect("Failed to set current dir");
     config
 }
@@ -131,9 +129,7 @@ fn anneal_command(sub_m: &ArgMatches) {
         None => layout_from_str(QWERTY).unwrap(),
     };
 
-    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
-                    || config.as_ref().and_then(|c| c.text_file.as_deref()));
-    let text = text_from_file(text_filename);
+    let text = text_from_file(config.as_ref().map(|c| c.corpus.as_path()));
     let mut alphabet: Vec<_> = layout.iter().flatten().copied().collect();
     alphabet.push(' ');
     alphabet.sort();
@@ -231,9 +227,7 @@ fn eval_command(sub_m: &ArgMatches) {
                       .or(Some(Path::new("config.toml")).filter(|p| p.is_file()))
                       .map(config_from_file);
 
-    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
-                    || config.as_ref().and_then(|c| c.text_file.as_deref()));
-    let text = text_from_file(text_filename);
+    let text = text_from_file(config.as_ref().map(|c| c.corpus.as_path()));
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
 
@@ -288,9 +282,7 @@ fn rank_command(sub_m: &ArgMatches) {
         }
     }
 
-    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
-                    || config.as_ref().and_then(|c| c.text_file.as_deref()));
-    let text = text_from_file(text_filename);
+    let text = text_from_file(config.as_ref().map(|c| c.corpus.as_path()));
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
 
@@ -427,9 +419,7 @@ fn stats_command(sub_m: &ArgMatches) {
         }
     }
 
-    let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
-                    || config.as_ref().and_then(|c| c.text_file.as_deref()));
-    let text = text_from_file(text_filename);
+    let text = text_from_file(config.as_ref().map(|c| c.corpus.as_path()));
     // Not filtering with any alphabet because different layouts may use
     // different alphabets.
 
@@ -612,8 +602,6 @@ fn main() {
                 "DB and configuration directory [current directory]")
             (@arg config: -c --config +takes_value
                 "Configuration file [<dir>/config.toml if present]")
-            (@arg text: -t --text +takes_value
-                "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg noshuffle: --("no-shuffle")
                 "Don't shuffle initial layout")
             (@arg steps: -s --steps +takes_value
@@ -632,8 +620,6 @@ fn main() {
             (version: "0.1")
             (@arg config: -c --config +takes_value
                 "Configuration file [./config.toml if present]")
-            (@arg text: -t --text +takes_value
-                "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg verbose: -v --verbose
                 "Print extra information for each layout")
             (@arg LAYOUT: +multiple +required
@@ -648,8 +634,6 @@ fn main() {
                 "DB and configuration directory [current directory]")
             (@arg config: -c --config +takes_value
                 "Configuration file [<dir>/config.toml if present]")
-            (@arg text: -t --text +takes_value
-                "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg number: -n --number +takes_value
                 "Number of top-ranked layouts to output")
             (@arg scores: -s --scores +takes_value
@@ -664,8 +648,6 @@ fn main() {
                 "DB and configuration directory [current directory]")
             (@arg config: -c --config +takes_value
                 "Configuration file [<dir>/config.toml if present]")
-            (@arg text: -t --text +takes_value
-                "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg scores: -s --scores +takes_value
                 "Comma-separated list of scores to rank layouts by")
         )
