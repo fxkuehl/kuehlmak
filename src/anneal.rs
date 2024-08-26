@@ -127,7 +127,7 @@ where M: EvalModel<'a>
                 // precision. The adjustment is proportional to the
                 // error of the imprecise score and inversely proportional
                 // to the noise
-                let d = (real_scores.total() - scores.total()).abs()
+                let d = (real_scores.total() - self.real_scores.total()).abs() * 0.1
                       / self.noise;
 
                 self.update_precision(d.min(0.1));
