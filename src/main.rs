@@ -114,15 +114,14 @@ fn text_from_file(path: Option<&Path>) -> TextStats {
 }
 
 fn anneal_command(sub_m: &ArgMatches) {
-    let dir: &Path = sub_m.value_of("dir").unwrap().as_ref();
+    let dir: &Path = sub_m.value_of("dir").unwrap_or(".").as_ref();
     if !dir.is_dir() {
         eprintln!("Not a directory: '{}'", dir.display());
         process::exit(1);
     }
     let db_config: PathBuf = [dir,"config.toml".as_ref()].into_iter().collect();
-    let config = sub_m.value_of("config").map(str::as_ref)
-                      .or_else(|| Some(db_config.as_path())
-                                    .filter(|p| p.is_file()))
+    let config = sub_m.value_of("config").map(Path::new)
+                      .or(Some(db_config.as_path()).filter(|p| p.is_file()))
                       .map(config_from_file);
 
     let layout = match sub_m.value_of("layout") {
@@ -233,7 +232,9 @@ fn anneal_command(sub_m: &ArgMatches) {
 }
 
 fn eval_command(sub_m: &ArgMatches) {
-    let config = sub_m.value_of("config").map(config_from_file);
+    let config = sub_m.value_of("config").map(Path::new)
+                      .or(Some(Path::new("config.toml")).filter(|p| p.is_file()))
+                      .map(config_from_file);
 
     let text_filename = sub_m.value_of("text").map(|p| p.as_ref()).or_else(
                     || config.as_ref().and_then(|c| c.text_file.as_deref()));
@@ -269,8 +270,15 @@ fn get_dir_paths(dir: &str) -> io::Result<Vec<PathBuf>> {
 fn rank_command(sub_m: &ArgMatches) {
     let mut config = sub_m.value_of("config").map(config_from_file);
     let mut layouts: Vec<_> = Vec::new();
-    let dir = sub_m.value_of("dir").unwrap();
-    let paths = get_dir_paths(dir).unwrap();
+    let dir = sub_m.value_of("dir").unwrap_or(".");
+    let paths = match get_dir_paths(dir) {
+        Ok(paths) => paths,
+        Err(e) => {
+            eprintln!("Unable to read directory '{}': {}\n{}", dir, e,
+                      sub_m.usage());
+            process::exit(1);
+        }
+    };
     for path in paths.into_iter().filter(|p| p.is_file()) {
         match path.extension().and_then(OsStr::to_str) {
             Some("kbl") => {
@@ -401,8 +409,15 @@ fn estimate_population_size(u: usize, k: usize) -> usize {
 fn stats_command(sub_m: &ArgMatches) {
     let mut config = sub_m.value_of("config").map(config_from_file);
     let mut layouts: Vec<_> = Vec::new();
-    let dir = sub_m.value_of("dir").unwrap();
-    let paths = get_dir_paths(dir).unwrap();
+    let dir = sub_m.value_of("dir").unwrap_or(".");
+    let paths = match get_dir_paths(dir) {
+        Ok(paths) => paths,
+        Err(e) => {
+            eprintln!("Unable to read directory '{}': {}\n{}", dir, e,
+                      sub_m.usage());
+            process::exit(1);
+        }
+    };
     for path in paths.into_iter().filter(|p| p.is_file()) {
         match path.extension().and_then(OsStr::to_str) {
             Some("kbl") => {
@@ -598,10 +613,10 @@ fn main() {
         (@subcommand anneal =>
             (about: "Generate a layout with Simulated Annealing")
             (version: "0.1")
-            (@arg dir: -d --dir +takes_value +required
-                "DB and configuration directory")
+            (@arg dir: -d --dir +takes_value
+                "DB and configuration directory [current directory]")
             (@arg config: -c --config +takes_value
-                "Configuration file [<dir>/config.toml]")
+                "Configuration file [<dir>/config.toml if present]")
             (@arg text: -t --text +takes_value
                 "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg layout: -l --layout +takes_value
@@ -623,7 +638,7 @@ fn main() {
             (about: "Evaluate layouts")
             (version: "0.1")
             (@arg config: -c --config +takes_value
-                "Configuration file")
+                "Configuration file [./config.toml if present]")
             (@arg text: -t --text +takes_value
                 "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg verbose: -v --verbose
@@ -636,10 +651,10 @@ fn main() {
         (@subcommand rank =>
             (about: "Rank layouts")
             (version: "0.1")
-            (@arg dir: -d --dir +takes_value +required
-                "DB and configuration directory")
+            (@arg dir: -d --dir +takes_value
+                "DB and configuration directory [current directory]")
             (@arg config: -c --config +takes_value
-                "Configuration file [<dir>/config.toml]")
+                "Configuration file [<dir>/config.toml if present]")
             (@arg text: -t --text +takes_value
                 "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg number: -n --number +takes_value
@@ -652,10 +667,10 @@ fn main() {
         (@subcommand stats =>
             (about: "Print population statistics")
             (version: "0.1")
-            (@arg dir: -d --dir +takes_value +required
-                "DB and configuration directory")
+            (@arg dir: -d --dir +takes_value
+                "DB and configuration directory [current directory]")
             (@arg config: -c --config +takes_value
-                "Configuration file [<dir>/config.toml]")
+                "Configuration file [<dir>/config.toml if present]")
             (@arg text: -t --text +takes_value
                 "Text or JSON file to use as input\n[stdin if not specified here or in <config>]")
             (@arg scores: -s --scores +takes_value
