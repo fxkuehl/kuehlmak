@@ -35,9 +35,11 @@ fn layout_from_file<P>(path: P) -> (Layout, usize)
         process::exit(1)
     });
     let popularity = if let Some(last_line) = string.lines().last() {
-        last_line.chars().filter(|&c| c == '#').count().max(1)
+        let hashes = last_line.chars().filter(|&c| c == '#').count();
+        let others = last_line.chars().filter(|&c| c != '#').count();
+        if others == 0 && hashes > 0 {hashes} else {0}
     } else {
-        1usize
+        0usize
     };
     (layout_from_str(&string).unwrap_or_else(|e| {
         eprintln!("Failed to parse layout: {}", e);
@@ -262,8 +264,33 @@ fn get_dir_paths(dir: &str) -> io::Result<Vec<PathBuf>> {
         .collect::<Result<Vec<_>, io::Error>>()
 }
 
-fn rank_command(sub_m: &ArgMatches) {
+fn layouts_from_paths(paths: Vec<PathBuf>) -> Vec<(Layout, usize)> {
     let mut layouts: Vec<_> = Vec::new();
+    let mut ignored = String::new();
+
+    for path in paths.iter().filter(|p| p.is_file()) {
+        match path.extension().and_then(OsStr::to_str) {
+            Some("kbl") => {
+                let l = layout_from_file(path);
+                if l.1 > 0 {
+                    layouts.push(layout_from_file(path));
+                } else { // track ignored keyboard layout files
+                    if ignored.len() > 0 {ignored.push_str(", ");}
+                    ignored.push_str(&path.to_string_lossy());
+                }
+            },
+            _ => (), // ignore other files silently
+        }
+    }
+
+    if ignored.len() > 0 {
+        println!("Ignoring {}", ignored);
+    }
+
+    layouts
+}
+
+fn rank_command(sub_m: &ArgMatches) {
     let dir = sub_m.value_of("dir").unwrap_or(".");
     let db_config: PathBuf = [dir,"config.toml".as_ref()].into_iter().collect();
     let config = sub_m.value_of("config").map(Path::new)
@@ -280,14 +307,7 @@ fn rank_command(sub_m: &ArgMatches) {
             process::exit(1);
         }
     };
-    for path in paths.into_iter().filter(|p| p.is_file()) {
-        match path.extension().and_then(OsStr::to_str) {
-            Some("kbl") => {
-                layouts.push(layout_from_file(&path));
-            },
-            _ => (), // ignore other files
-        }
-    }
+    let layouts = layouts_from_paths(paths);
 
     let text = text_from_file(Some(config.corpus.as_path()));
     // Not filtering with any alphabet because different layouts may use
@@ -401,7 +421,6 @@ fn estimate_population_size(u: usize, k: usize) -> usize {
 }
 
 fn stats_command(sub_m: &ArgMatches) {
-    let mut layouts: Vec<_> = Vec::new();
     let dir = sub_m.value_of("dir").unwrap_or(".");
     let db_config: PathBuf = [dir,"config.toml".as_ref()].into_iter().collect();
     let config = sub_m.value_of("config").map(Path::new)
@@ -418,14 +437,7 @@ fn stats_command(sub_m: &ArgMatches) {
             process::exit(1);
         }
     };
-    for path in paths.into_iter().filter(|p| p.is_file()) {
-        match path.extension().and_then(OsStr::to_str) {
-            Some("kbl") => {
-                layouts.push(layout_from_file(&path));
-            },
-            _ => (), // ignore other files
-        }
-    }
+    let layouts = layouts_from_paths(paths);
 
     let text = text_from_file(Some(config.corpus.as_path()));
     // Not filtering with any alphabet because different layouts may use
