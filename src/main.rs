@@ -586,6 +586,45 @@ fn corpus_command(sub_m: &ArgMatches) {
     println!("{}", j);
 }
 
+fn init_command(sub_m: &ArgMatches) {
+    // Parse the corpus as a sanity check
+    let corpus = sub_m.value_of("corpus").unwrap();
+    let corpus = fs::canonicalize(corpus).unwrap_or_else(|e| {
+        eprintln!("Invalid path '{}': {}", corpus, e);
+        process::exit(1);
+    });
+    let _corpus = text_from_file(Some(corpus.as_path()));
+
+    let dir = sub_m.value_of("dir").unwrap_or(".");
+    if !Path::new(dir).is_dir() {
+        if let Err(e) = fs::create_dir(dir) {
+            eprintln!("Failed to create directory '{}': {}", dir, e);
+            process::exit(1);
+        }
+    }
+
+    let db_config: PathBuf = [dir,"config.toml".as_ref()].into_iter().collect();
+    let config_file = sub_m.value_of("config").map(Path::new)
+                           .unwrap_or(db_config.as_path());
+    if config_file.is_file() && !sub_m.is_present("force") {
+        eprintln!("Configuration file '{}' exists. Use --force to overwrite it.",
+                  config_file.display());
+        process::exit(1);
+    }
+
+    let config = Config {
+        corpus,
+        initial_layout: Some(layout_from_str(QWERTY).unwrap()),
+        params: KuehlmakParams::default()
+    };
+
+    let toml = toml::to_string_pretty(&config).expect("Serialization failed");
+    if let Err(e) = fs::write(config_file, toml) {
+        eprintln!("Failed to write '{}': {}", config_file.display(), e);
+        process::exit(1);
+    }
+}
+
 fn main() {
     let app_m = clap_app!(kuehlmak =>
         (version: "0.1")
@@ -659,6 +698,18 @@ fn main() {
             (@arg scores: -s --scores +takes_value
                 "Comma-separated list of scores to show stats for")
         )
+        (@subcommand init =>
+            (about: "Create workspace and initialize configuration file")
+            (version: "0.1")
+            (@arg dir: -d --dir +takes_value
+                "Workspace directory [current directory]")
+            (@arg config: -c --config +takes_value
+                "Configuration file [<dir>/config.toml]")
+            (@arg corpus: -C --corpus +takes_value +required
+                "Corpus")
+            (@arg force: -f --force
+                "Overwrite existing configuration file")
+        )
     ).get_matches();
 
     match app_m.subcommand_name() {
@@ -671,6 +722,8 @@ fn main() {
         Some("stats") => stats_command(app_m.subcommand_matches("stats")
                                               .unwrap()),
         Some("corpus") => corpus_command(app_m.subcommand_matches("corpus")
+                                                    .unwrap()),
+        Some("init") => init_command(app_m.subcommand_matches("init")
                                                     .unwrap()),
         Some(unknown) => panic!("Unhandled subcommand: {}", unknown),
         None => {
