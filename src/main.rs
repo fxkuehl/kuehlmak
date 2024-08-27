@@ -589,8 +589,8 @@ fn corpus_command(sub_m: &ArgMatches) {
 fn main() {
     let app_m = clap_app!(kuehlmak =>
         (version: "0.1")
-        (author: "Felix Kuehling <felix.kuehling@gmail.com>")
-        (about: "Keyboard layout generator and analyzer")
+        (author: "Felix Kühling")
+        (about: "Keyboard layout analyzer and optimizer")
         (@subcommand corpus =>
             (about: "Compute corpus statistics, write JSON to stdout")
             (version: "0.1")
@@ -604,10 +604,10 @@ fn main() {
                 "Text or JSON file to use as input [stdin]")
         )
         (@subcommand anneal =>
-            (about: "Generate a layout with Simulated Annealing")
+            (about: "Generate layouts with Simulated Annealing")
             (version: "0.1")
             (@arg dir: -d --dir +takes_value
-                "DB and configuration directory [current directory]")
+                "Workspace directory [current directory]")
             (@arg config: -c --config +takes_value
                 "Configuration file [<dir>/config.toml]")
             (@arg noshuffle: --("no-shuffle")
@@ -639,7 +639,7 @@ fn main() {
             (about: "Rank layouts")
             (version: "0.1")
             (@arg dir: -d --dir +takes_value
-                "DB and configuration directory [current directory]")
+                "Workspace directory [current directory]")
             (@arg config: -c --config +takes_value
                 "Configuration file [<dir>/config.toml]")
             (@arg number: -n --number +takes_value
@@ -653,7 +653,7 @@ fn main() {
             (about: "Print population statistics")
             (version: "0.1")
             (@arg dir: -d --dir +takes_value
-                "DB and configuration directory [current directory]")
+                "Workspace directory [current directory]")
             (@arg config: -c --config +takes_value
                 "Configuration file [<dir>/config.toml]")
             (@arg scores: -s --scores +takes_value
