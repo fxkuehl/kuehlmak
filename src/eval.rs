@@ -773,7 +773,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             Ok(sum)
         };
 
-        let bigram_names = ["", "SameKey", "DRolls", "URolls",
+        let bigram_names = ["", "DRolls", "URolls", "SameKey",
             "LSB3s (count as 1/3 WLSBs, 2/3 URolls)",
             "LSB2s (count as 1/2 WLSBs, 1/2 URolls)",
             "LSB1s", "Scissors", "SFBs"];
@@ -1363,10 +1363,10 @@ impl KuehlmakModel {
                     if let Hand::Any = h2 {continue}
                     if h0 == h2 && h0 != h1 { // Disjointed same-hand bigrams
                         trigram_types[i][j][k] = match bigram_types[i][k] as usize {
-                            BIGRAM_SAMEKEY => TRIGRAM_D_SAMEKEY,
                             BIGRAM_SFB     => TRIGRAM_D_SFB,
                             BIGRAM_DROLL   => TRIGRAM_D_DROLL,
                             BIGRAM_UROLL   => TRIGRAM_D_UROLL,
+                            BIGRAM_SAMEKEY => TRIGRAM_D_SAMEKEY,
                             BIGRAM_LSB1    => TRIGRAM_D_LSB1,
                             BIGRAM_LSB2    => TRIGRAM_D_LSB2,
                             BIGRAM_LSB3    => TRIGRAM_D_LSB3,
@@ -1378,8 +1378,8 @@ impl KuehlmakModel {
                             trigram_types[i][j][k] = TRIGRAM_SHD_SAMEKEY as u8;
                         } else if f0 == f2 && f0 != f1 { // Disjointed same-finger bigrams
                             trigram_types[i][j][k] = TRIGRAM_SHD_SFB as u8;
-                        } else if bigram_types[i][j] >= BIGRAM_LSB1 as u8 && // Sequence of two bad bigrams
-                                  bigram_types[j][k] >= BIGRAM_LSB1 as u8 {
+                        } else if bigram_types[i][j] >= BIGRAM_SAMEKEY as u8 && // Sequence of two bad bigrams
+                                  bigram_types[j][k] >= BIGRAM_SAMEKEY as u8 {
                             trigram_types[i][j][k] = TRIGRAM_CONTORT as u8;
                         } else if f0 != f1 && f1 != f2 && // Same-hand disjointed scissors count as contortions
                                   bigram_types[i][k] == BIGRAM_SCISSOR as u8 {
@@ -1516,9 +1516,9 @@ impl KuehlmakModel {
 }
 
 const BIGRAM_ALTERNATE:  usize = 0;
-const BIGRAM_SAMEKEY:    usize = 1;
-const BIGRAM_DROLL:      usize = 2;
-const BIGRAM_UROLL:      usize = 3;
+const BIGRAM_DROLL:      usize = 1;
+const BIGRAM_UROLL:      usize = 2;
+const BIGRAM_SAMEKEY:    usize = 3;
 const BIGRAM_LSB3:       usize = 4;
 const BIGRAM_LSB2:       usize = 5;
 const BIGRAM_LSB1:       usize = 6;
