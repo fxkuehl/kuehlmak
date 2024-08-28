@@ -732,7 +732,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                  ft_iter.next().unwrap(), ft_iter.next().unwrap(),
                  ft_iter.next().unwrap(), ft_iter.next().unwrap())?;
 
-        write!(w, "Effort {:6.1} ({:6.1}) {:+7.2}% {} |",
+        write!(w, "Effort{:7.1} ({:6.1}) {:+7.2}% {} |",
                self.effort * 1000.0, raw_effort, self.imbalance * 100.0,
                if raw_left > raw_right {'<'} else {'>'})?;
         write!(w, "{:3.0}+{:3.0}+{:3.0}+{:3.0}={:<4.0}",
