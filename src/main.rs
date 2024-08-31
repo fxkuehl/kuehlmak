@@ -1,6 +1,6 @@
 use kuehlmak::TextStats;
 use kuehlmak::{
-    layout_from_str, serde_layout, Layout,
+    layout_from_str, layout_to_str, serde_layout, Layout,
     EvalModel, EvalScores,
     KuehlmakModel, KuehlmakParams, KuehlmakScores,
     Anneal
@@ -378,8 +378,11 @@ fn rank_command(sub_m: &ArgMatches) {
         }),
         None => scores.len(),
     };
+    let n_digits = format!("{}", n).len();
+    let prefix = sub_m.value_of("prefix");
+    let force = sub_m.is_present("force");
     let stdout = &mut io::stdout();
-    for (s, cs, _, cr) in ranked_scores.into_iter().take(n) {
+    for (i, (s, cs, _, cr)) in ranked_scores.into_iter().take(n).enumerate() {
         print!("=== {:.0}x ", cs.last().unwrap());
         for name in score_names.split(',') {
             let raw_name = name.strip_prefix('+').unwrap_or(name);
@@ -390,6 +393,17 @@ fn rank_command(sub_m: &ArgMatches) {
         println!("===");
         s.write(stdout, show_scores).unwrap();
         println!();
+        if let Some(p) = prefix {
+            let path = format!("{}{:0width$}.kbl", p, i+1, width = n_digits);
+            let path = Path::new(&path);
+            if !force && path.is_file() {
+                eprintln!("Layout file '{}' exists. Use --force to overwrite it.",
+                          path.display());
+            } else if let Err(e) = fs::write(path, layout_to_str(&s.layout())) {
+                eprintln!("Failed to write '{}': {}", path.display(), e);
+                // continue printing/saving the remaining layouts
+            }
+        }
     }
 }
 
@@ -699,6 +713,10 @@ fn main() {
                 "Comma-separated list of scores to rank layouts by")
             (@arg show_scores: --("show-scores")
                 "Print scores instead of letter and n-gram counts")
+            (@arg prefix: -p --prefix +takes_value
+                "Save ranked layouts to files with this prefix")
+            (@arg force: -f --force
+                "Overwrite existing layouts")
         )
         (@subcommand stats =>
             (about: "Print population statistics")
