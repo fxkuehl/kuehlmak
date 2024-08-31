@@ -10,7 +10,7 @@ use clap::{clap_app, ArgMatches};
 
 use serde::{Serialize, Deserialize};
 
-use threadpool::ThreadPool;
+use threadpool;
 use std::sync::mpsc::channel;
 
 use std::path::{PathBuf, Path};
@@ -154,14 +154,12 @@ fn anneal_command(sub_m: &ArgMatches) {
     let progress = sub_m.is_present("progress");
     let show_scores = sub_m.is_present("show_scores");
 
-    let jobs: usize = match sub_m.value_of("jobs") {
-        Some(number) => number.parse().unwrap_or_else(|e| {
+    let jobs: Option<usize> = sub_m.value_of("jobs").map(|number| {
+        number.parse().unwrap_or_else(|e| {
             eprintln!("Invalid number '{}': {}", number, e);
             process::exit(1)
-        }),
-        None => 1,
-    };
-
+        })
+    });
     let n: usize = match sub_m.value_of("number") {
         Some(number) => number.parse().unwrap_or_else(|e| {
             eprintln!("Invalid number '{}': {}", number, e);
@@ -170,8 +168,10 @@ fn anneal_command(sub_m: &ArgMatches) {
         None => 1,
     };
 
-    // Generate n layouts using j worker threads
-    let pool = ThreadPool::new(jobs);
+    // Generate n layouts using j (or number-of-CPU) worker threads
+    let builder = threadpool::Builder::new();
+    let pool = if let Some(j) = jobs {builder.num_threads(j)} else {builder}
+                                             .build();
     let (tx, rx) = channel();
     let stdout = &mut io::stdout();
     for _ in 0..n {
@@ -211,7 +211,7 @@ fn anneal_command(sub_m: &ArgMatches) {
         // avoids unbounded memory allocations for the worker closures.
         // Assume that workers send messages before terminating, so we can
         // wait for messages without worrying that workers will go idle.
-        while pool.queued_count() >= jobs {
+        while pool.queued_count() >= pool.max_count() {
             stdout.write(&rx.recv().unwrap()).unwrap();
         }
     }
@@ -682,7 +682,7 @@ fn main() {
             (@arg number: -n --number +takes_value
                 "Number of layouts to generate [1]")
             (@arg jobs: -j --jobs +takes_value
-                "Number of jobs (threads) to run concurrently [1]")
+                "Number of jobs (threads) to run concurrently [number of CPUs]")
             (@arg progress: -p --progress
                 "Print layouts in progress")
             (@arg show_scores: --("show-scores")
