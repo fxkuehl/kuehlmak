@@ -103,7 +103,10 @@ pub fn layout_to_str(layout: &Layout) -> String {
 
 pub fn layout_to_filename(layout: &Layout) -> PathBuf {
     let mut s = String::new();
-    for &[a, _] in layout {
+    for (i, &[a, _]) in layout.iter().enumerate() {
+        if i == 10 || i == 20 {
+            s.push('_');
+        }
         // Some substitutions for characters that don't work well in
         // file names on some OSes.
         s.push(match a {
