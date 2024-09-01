@@ -169,64 +169,6 @@ pub mod serde_layout {
     }
 }
 
-// How different are two layouts? Count how many symbols are on the same
-// key, finger and hand to make up a score between 0 (identical) and
-// 1 (as different as it gets).
-#[allow(clippy::comparison_chain)]
-fn layout_distance(a: &Layout, b: &Layout) -> f64 {
-    // Build indexed arrays of the lower-case symbols of both layouts
-    let mut i = 0usize;
-    let mut c = || {i += 1; ((i-1) as u32, a[i-1][0])};
-    let mut a = [c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
-                 c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
-                 c(), c(), c(), c(), c(), c(), c(), c(), c(), c()];
-    let mut i = 0usize;
-    let mut c = || {i += 1; ((i-1) as u32, b[i-1][0])};
-    let mut b = [c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
-                 c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
-                 c(), c(), c(), c(), c(), c(), c(), c(), c(), c()];
-
-    // Sort them by symbol. That makes the rest of this function O(n)
-    a.sort_by_key(|x| x.1);
-    b.sort_by_key(|x| x.1);
-
-    // Iterate over both array, evaluate distance of matching symbols
-    let mut i = 0;
-    let mut j = 0;
-    let mut distance = 120;
-    while i < 30 && j < 30 {
-        // If the symbols don't match, advance the array with the smaller
-        // symbol to try to resync them and find all matches
-        if a[i].1 < b[j].1 {
-            i += 1;
-            continue;
-        } else if a[i].1 > b[j].1 {
-            j += 1;
-            continue;
-        }
-        // Symbols match, adjust distance based on the indexes
-        if a[i].0 == b[j].0 {
-            distance -= 4; // same key
-        } else {
-            let finger = |key| {
-                let col = key % 10;
-                if col < 4 {col} else if col < 6 {col - 1} else {col - 2}
-            };
-            if finger(a[i].0) == finger(b[j].0) {
-                distance -= 2;
-            } else {
-                let hand = |k| if k % 10 < 5 {0} else {1};
-                if hand(a[i].0) == hand(b[j].0) {
-                    distance -= 1;
-                }
-            }
-        }
-        i += 1;
-        j += 1;
-    }
-    distance as f64 / 120.0
-}
-
 // Mirror a key from left to right hand or vice versa
 fn mirror_key(k: u8) -> u8
 {
@@ -418,128 +360,6 @@ pub struct ConstraintParams {
     homing_weight: f64,
     zxcv: f64,
     nonalpha: f64,
-}
-
-fn eval_constraints(layout: &Layout, params: &ConstraintParams) -> f64 {
-    let mut score = match params.ref_layout.as_ref() {
-        Some(ref_layout) if params.ref_weight != 0.0 =>
-            (layout_distance(layout, ref_layout) - params.ref_threshold)
-            .max(0.0) * (1.0 - params.ref_threshold) * params.ref_weight,
-        _ => 0.0,
-    };
-    score += match params.top_keys.as_ref() {
-        Some(keys) if params.top_weight != 0.0 =>
-            eval_row(layout, 0, keys) * params.top_weight,
-        _ => 0.0,
-    };
-    score += match params.mid_keys.as_ref() {
-        Some(keys) if params.mid_weight != 0.0 =>
-            eval_row(layout, 1, keys) * params.mid_weight,
-        _ => 0.0,
-    };
-    score += match params.bot_keys.as_ref() {
-        Some(keys) if params.bot_weight != 0.0 =>
-            eval_row(layout, 2, keys) * params.bot_weight,
-        _ => 0.0,
-    };
-    score += match params.homing_keys.as_ref() {
-        Some(keys) if params.homing_weight != 0.0 =>
-            eval_homing(layout, keys, params.homing_only_keys.as_ref()
-                                                             .map(|s| &s[..]))
-            * params.homing_weight,
-        _ => 0.0,
-    };
-    if params.zxcv != 0.0 {
-        score += params.zxcv * eval_zxcv(layout);
-    }
-    if params.nonalpha != 0.0 {
-        score += params.nonalpha * eval_nonalpha(layout);
-    }
-    score
-}
-
-// ZXCV-constraint: Penalize xzcv keys that are not in the left hand
-// bottom row. Being complete and in the right order gives one bonus point
-fn eval_zxcv(layout: &Layout) -> f64 {
-    let zxcv = ['z', 'x', 'c', 'v'];
-    let mut found = [' ', ' ', ' ', ' '];
-    let mut n = 0;
-
-    for [c, _] in &layout[20..25] {
-        if zxcv.contains(c) {
-            found[n] = *c;
-            n += 1;
-        }
-    }
-    if zxcv == found {
-        n += 1;
-    }
-    (5 - n) as f64 / 5.0
-}
-
-// Non-alpha constraint: Penalize alpha-keys in Colemak non-alpha positions.
-// Using Colemak rather than QWERTY because non-alpha keys make no sense on
-// the home row
-fn eval_nonalpha(layout: &Layout) -> f64 {
-    let mut n = if layout[9][0].is_alphabetic() {1} else {0};
-
-    n += layout[27..30].iter().filter(|[c, _]| c.is_alphabetic()).count();
-    n as f64 / 4.0
-}
-
-// Per-row keycap constraints to evaluate, whether a layout can be built with
-// a given set of keycaps
-fn eval_row(layout: &Layout, row: usize, keys: &str) -> f64 {
-    layout[row*10..(row+1)*10].iter().filter(|&[c, _]| keys.contains(*c))
-                              .count() as f64 / -10.0 + 1.0
-}
-// Homing key constraint. Checks whether homing keys are available for either
-// the index or middle finger and returns the better of the two options.
-// Optionally a set of homing-only keys can be given. These keys must be on
-// a homing position if they are on the home row because they are only
-// available as homing keys.
-fn eval_homing(layout: &Layout, keys: &str, homing_only_keys: Option<&str>)
-        -> f64 {
-    let index  = keys.contains(layout[13][0]) as u8
-               + keys.contains(layout[16][0]) as u8;
-    let middle = keys.contains(layout[12][0]) as u8
-               + keys.contains(layout[17][0]) as u8;
-    let mut homing_finger = 0u8;
-    let mut homing_only_wrong = false;
-
-    if let Some(keys) = homing_only_keys {
-        for key in keys.chars() {
-            if let Some(p) = layout[10..20].iter()
-                                           .position(|&[c, _]| c == key) {
-                if p == 3 || p == 6 {
-                    if homing_finger == 0 {
-                        homing_finger = 1;
-                    } else if homing_finger != 1 {
-                        homing_only_wrong = true;
-                        break;
-                    }
-                } else if p == 2 || p == 7 {
-                    if homing_finger == 0 {
-                        homing_finger = 2;
-                    } else if homing_finger != 2 {
-                        homing_only_wrong = true;
-                        break;
-                    }
-                } else {
-                    homing_only_wrong = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    (if homing_finger == 0 {
-        2 - index.max(middle)
-    } else if homing_finger == 1 {
-        2 - index
-    } else {
-        2 - middle
-    } + homing_only_wrong as u8) as f64 / 3.0
 }
 
 #[derive(Clone)]
@@ -921,7 +741,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
         let mut scores = KuehlmakScores {
             model: self,
             layout: *layout,
-            constraints: eval_constraints(layout, &self.params.constraints),
+            constraints: self.eval_constraints(layout),
             token_keymap: Vec::new(),
             strokes: 0,
             heatmap: [0; 31],
@@ -1267,6 +1087,187 @@ impl KuehlmakModel {
             hand_weight[0] as f64 / hand_weight[1] as f64
         };
         scores.imbalance = balance.max(0.001).recip() - 1.0;
+    }
+
+    fn eval_constraints(&self, layout: &Layout) -> f64 {
+        let params = &self.params.constraints;
+        let mut score = match params.ref_layout.as_ref() {
+            Some(ref_layout) if params.ref_weight != 0.0 =>
+                (Self::layout_distance(layout, ref_layout) - params.ref_threshold)
+                .max(0.0) * (1.0 - params.ref_threshold) * params.ref_weight,
+            _ => 0.0,
+        };
+        score += match params.top_keys.as_ref() {
+            Some(keys) if params.top_weight != 0.0 =>
+                Self::eval_row(layout, 0, keys) * params.top_weight,
+            _ => 0.0,
+        };
+        score += match params.mid_keys.as_ref() {
+            Some(keys) if params.mid_weight != 0.0 =>
+                Self::eval_row(layout, 1, keys) * params.mid_weight,
+            _ => 0.0,
+        };
+        score += match params.bot_keys.as_ref() {
+            Some(keys) if params.bot_weight != 0.0 =>
+                Self::eval_row(layout, 2, keys) * params.bot_weight,
+            _ => 0.0,
+        };
+        score += match params.homing_keys.as_ref() {
+            Some(keys) if params.homing_weight != 0.0 =>
+                Self::eval_homing(layout, keys, params.homing_only_keys
+                                                .as_ref().map(|s| &s[..]))
+                * params.homing_weight,
+            _ => 0.0,
+        };
+        if params.zxcv != 0.0 {
+            score += params.zxcv * Self::eval_zxcv(layout);
+        }
+        if params.nonalpha != 0.0 {
+            score += params.nonalpha * Self::eval_nonalpha(layout);
+        }
+        score
+    }
+
+    // How different are two layouts? Count how many symbols are on the same
+    // key, finger and hand to make up a score between 0 (identical) and
+    // 1 (as different as it gets).
+    #[allow(clippy::comparison_chain)]
+    fn layout_distance(a: &Layout, b: &Layout) -> f64 {
+        // Build indexed arrays of the lower-case symbols of both layouts
+        let mut i = 0usize;
+        let mut c = || {i += 1; ((i-1) as u32, a[i-1][0])};
+        let mut a = [c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
+                     c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
+                     c(), c(), c(), c(), c(), c(), c(), c(), c(), c()];
+        let mut i = 0usize;
+        let mut c = || {i += 1; ((i-1) as u32, b[i-1][0])};
+        let mut b = [c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
+                     c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
+                     c(), c(), c(), c(), c(), c(), c(), c(), c(), c()];
+
+        // Sort them by symbol. That makes the rest of this function O(n)
+        a.sort_by_key(|x| x.1);
+        b.sort_by_key(|x| x.1);
+
+        // Iterate over both array, evaluate distance of matching symbols
+        let mut i = 0;
+        let mut j = 0;
+        let mut distance = 120;
+        while i < 30 && j < 30 {
+            // If the symbols don't match, advance the array with the smaller
+            // symbol to try to resync them and find all matches
+            if a[i].1 < b[j].1 {
+                i += 1;
+                continue;
+            } else if a[i].1 > b[j].1 {
+                j += 1;
+                continue;
+            }
+            // Symbols match, adjust distance based on the indexes
+            if a[i].0 == b[j].0 {
+                distance -= 4; // same key
+            } else {
+                let finger = |key| {
+                    let col = key % 10;
+                    if col < 4 {col} else if col < 6 {col - 1} else {col - 2}
+                };
+                if finger(a[i].0) == finger(b[j].0) {
+                    distance -= 2;
+                } else {
+                    let hand = |k| if k % 10 < 5 {0} else {1};
+                    if hand(a[i].0) == hand(b[j].0) {
+                        distance -= 1;
+                    }
+                }
+            }
+            i += 1;
+            j += 1;
+        }
+        distance as f64 / 120.0
+    }
+
+    // ZXCV-constraint: Penalize xzcv keys that are not in the left hand
+    // bottom row. Being complete and in the right order gives one bonus point
+    fn eval_zxcv(layout: &Layout) -> f64 {
+        let zxcv = ['z', 'x', 'c', 'v'];
+        let mut found = [' ', ' ', ' ', ' '];
+        let mut n = 0;
+
+        for [c, _] in &layout[20..25] {
+            if zxcv.contains(c) {
+                found[n] = *c;
+                n += 1;
+            }
+        }
+        if zxcv == found {
+            n += 1;
+        }
+        (5 - n) as f64 / 5.0
+    }
+
+    // Non-alpha constraint: Penalize alpha-keys in Colemak non-alpha positions.
+    // Using Colemak rather than QWERTY because non-alpha keys make no sense on
+    // the home row
+    fn eval_nonalpha(layout: &Layout) -> f64 {
+        let mut n = if layout[9][0].is_alphabetic() {1} else {0};
+
+        n += layout[27..30].iter().filter(|[c, _]| c.is_alphabetic()).count();
+        n as f64 / 4.0
+    }
+
+    // Per-row keycap constraints to evaluate, whether a layout can be built
+    // with a given set of keycaps
+    fn eval_row(layout: &Layout, row: usize, keys: &str) -> f64 {
+        layout[row*10..(row+1)*10].iter().filter(|&[c, _]| keys.contains(*c))
+                                  .count() as f64 / -10.0 + 1.0
+    }
+    // Homing key constraint. Checks whether homing keys are available for
+    // either the index or middle finger and returns the better of the two
+    // options. Optionally a set of homing-only keys can be given. These keys
+    // must be on a homing position if they are on the home row because they
+    // are only available as homing keys.
+    fn eval_homing(layout: &Layout, keys: &str, homing_only_keys: Option<&str>)
+            -> f64 {
+        let index  = keys.contains(layout[13][0]) as u8
+                   + keys.contains(layout[16][0]) as u8;
+        let middle = keys.contains(layout[12][0]) as u8
+                   + keys.contains(layout[17][0]) as u8;
+        let mut homing_finger = 0u8;
+        let mut homing_only_wrong = false;
+
+        if let Some(keys) = homing_only_keys {
+            for key in keys.chars() {
+                if let Some(p) = layout[10..20].iter()
+                                               .position(|&[c, _]| c == key) {
+                    if p == 3 || p == 6 {
+                        if homing_finger == 0 {
+                            homing_finger = 1;
+                        } else if homing_finger != 1 {
+                            homing_only_wrong = true;
+                            break;
+                        }
+                    } else if p == 2 || p == 7 {
+                        if homing_finger == 0 {
+                            homing_finger = 2;
+                        } else if homing_finger != 2 {
+                            homing_only_wrong = true;
+                            break;
+                        }
+                    } else {
+                        homing_only_wrong = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        (if homing_finger == 0 {
+            2 - index.max(middle)
+        } else if homing_finger == 1 {
+            2 - index
+        } else {
+            2 - middle
+        } + homing_only_wrong as u8) as f64 / 3.0
     }
 
     pub fn new(params: Option<KuehlmakParams>) -> KuehlmakModel {
