@@ -1097,28 +1097,15 @@ impl KuehlmakModel {
                 .max(0.0) * (1.0 - params.ref_threshold) * params.ref_weight,
             _ => 0.0,
         };
-        score += match params.top_keys.as_ref() {
-            Some(keys) if params.top_weight != 0.0 =>
-                Self::eval_row(layout, 0, keys) * params.top_weight,
-            _ => 0.0,
-        };
-        score += match params.mid_keys.as_ref() {
-            Some(keys) if params.mid_weight != 0.0 =>
-                Self::eval_row(layout, 1, keys) * params.mid_weight,
-            _ => 0.0,
-        };
-        score += match params.bot_keys.as_ref() {
-            Some(keys) if params.bot_weight != 0.0 =>
-                Self::eval_row(layout, 2, keys) * params.bot_weight,
-            _ => 0.0,
-        };
-        score += match params.homing_keys.as_ref() {
-            Some(keys) if params.homing_weight != 0.0 =>
-                Self::eval_homing(layout, keys, params.homing_only_keys
-                                                .as_ref().map(|s| &s[..]))
-                * params.homing_weight,
-            _ => 0.0,
-        };
+        score += Self::eval_row(layout, 0, params.top_keys.as_deref()) *
+            params.top_weight;
+        score += Self::eval_row(layout, 1, params.mid_keys.as_deref()) *
+            params.mid_weight;
+        score += Self::eval_row(layout, 2, params.bot_keys.as_deref()) *
+            params.bot_weight;
+        score += Self::eval_homing(layout, params.homing_keys.as_deref(),
+                                   params.homing_only_keys.as_deref()) *
+            params.homing_weight;
         if params.zxcv != 0.0 {
             score += params.zxcv * Self::eval_zxcv(layout);
         }
@@ -1217,17 +1204,22 @@ impl KuehlmakModel {
 
     // Per-row keycap constraints to evaluate, whether a layout can be built
     // with a given set of keycaps
-    fn eval_row(layout: &Layout, row: usize, keys: &str) -> f64 {
-        layout[row*10..(row+1)*10].iter().filter(|&[c, _]| keys.contains(*c))
-                                  .count() as f64 / -10.0 + 1.0
+    fn eval_row(layout: &Layout, row: usize, keys: Option<&str>) -> f64 {
+        match keys {
+            Some(keys) => layout[row*10..(row+1)*10].iter()
+                            .filter(|&[c, _]| keys.contains(*c)).count()
+                            as f64 / -10.0 + 1.0,
+            None => 0.0
+        }
     }
     // Homing key constraint. Checks whether homing keys are available for
     // either the index or middle finger and returns the better of the two
     // options. Optionally a set of homing-only keys can be given. These keys
     // must be on a homing position if they are on the home row because they
     // are only available as homing keys.
-    fn eval_homing(layout: &Layout, keys: &str, homing_only_keys: Option<&str>)
-            -> f64 {
+    fn eval_homing(layout: &Layout, keys: Option<&str>,
+                   homing_only_keys: Option<&str>) -> f64 {
+        let keys = if let Some(k) = keys {k} else {return 0.0};
         let index  = keys.contains(layout[13][0]) as u8
                    + keys.contains(layout[16][0]) as u8;
         let middle = keys.contains(layout[12][0]) as u8
@@ -1261,13 +1253,11 @@ impl KuehlmakModel {
             }
         }
 
-        (if homing_finger == 0 {
-            2 - index.max(middle)
-        } else if homing_finger == 1 {
-            2 - index
-        } else {
-            2 - middle
-        } + homing_only_wrong as u8) as f64 / 3.0
+        (2 - match homing_finger {
+            0 => index.max(middle),
+            1 => index,
+            _ => middle
+            } + homing_only_wrong as u8) as f64 / 3.0
     }
 
     pub fn new(params: Option<KuehlmakParams>) -> KuehlmakModel {
