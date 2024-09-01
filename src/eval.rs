@@ -1093,7 +1093,7 @@ impl KuehlmakModel {
         let params = &self.params.constraints;
         let mut score = match params.ref_layout.as_ref() {
             Some(ref_layout) if params.ref_weight != 0.0 =>
-                (Self::layout_distance(layout, ref_layout) - params.ref_threshold)
+                (self.layout_distance(layout, ref_layout) - params.ref_threshold)
                 .max(0.0) * (1.0 - params.ref_threshold) * params.ref_weight,
             _ => 0.0,
         };
@@ -1119,20 +1119,22 @@ impl KuehlmakModel {
     // key, finger and hand to make up a score between 0 (identical) and
     // 1 (as different as it gets).
     #[allow(clippy::comparison_chain)]
-    fn layout_distance(a: &Layout, b: &Layout) -> f64 {
+    fn layout_distance(&self, a: &Layout, b: &Layout) -> f64 {
         // Build indexed arrays of the lower-case symbols of both layouts
         let mut i = 0usize;
-        let mut c = || {i += 1; ((i-1) as u32, a[i-1][0])};
+        let mut c = || {i += 1; ((i-1) as usize, a[i-1][0])};
         let mut a = [c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
                      c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
                      c(), c(), c(), c(), c(), c(), c(), c(), c(), c()];
         let mut i = 0usize;
-        let mut c = || {i += 1; ((i-1) as u32, b[i-1][0])};
+        let mut c = || {i += 1; ((i-1) as usize, b[i-1][0])};
         let mut b = [c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
                      c(), c(), c(), c(), c(), c(), c(), c(), c(), c(),
                      c(), c(), c(), c(), c(), c(), c(), c(), c(), c()];
 
-        // Sort them by symbol. That makes the rest of this function O(n)
+        // Sort them by symbol. If they don't match it'se because the layouts
+        // implement different alphabets. Working on sorted arrays makes the
+        // rest of this function O(n)
         a.sort_by_key(|x| x.1);
         b.sort_by_key(|x| x.1);
 
@@ -1153,19 +1155,12 @@ impl KuehlmakModel {
             // Symbols match, adjust distance based on the indexes
             if a[i].0 == b[j].0 {
                 distance -= 4; // same key
-            } else {
-                let finger = |key| {
-                    let col = key % 10;
-                    if col < 4 {col} else if col < 6 {col - 1} else {col - 2}
-                };
-                if finger(a[i].0) == finger(b[j].0) {
-                    distance -= 2;
-                } else {
-                    let hand = |k| if k % 10 < 5 {0} else {1};
-                    if hand(a[i].0) == hand(b[j].0) {
-                        distance -= 1;
-                    }
-                }
+            } else if self.key_props[a[i].0].finger ==
+                      self.key_props[b[j].0].finger {
+                distance -= 2;
+            } else if self.key_props[a[i].0].hand ==
+                      self.key_props[b[j].0].hand {
+                distance -= 1;
             }
             i += 1;
             j += 1;
