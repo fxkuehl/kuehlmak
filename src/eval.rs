@@ -272,6 +272,7 @@ pub struct KuehlmakParams {
     board_type: KeyboardType,
     space_thumb: Hand,
     weights: KuehlmakWeights,
+    targets: KuehlmakTargets,
     constraints: ConstraintParams,
 }
 
@@ -281,6 +282,7 @@ impl Default for KuehlmakParams {
             board_type: KeyboardType::Ortho,
             space_thumb: Hand::Any,
             weights: KuehlmakWeights::default(),
+            targets: KuehlmakTargets::default(),
             constraints: ConstraintParams::default(),
         }
     }
@@ -340,6 +342,32 @@ impl Default for KuehlmakWeights {
             contorts:     10.0,
         }
     }
+}
+
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(default,deny_unknown_fields)]
+pub struct KuehlmakTargets {
+    factor: f64,
+    effort: Option<f64>,
+    travel: Option<f64>,
+    imbalance: Option<f64>,
+    drolls: Option<f64>,
+    urolls: Option<f64>,
+    #[serde(rename = "WLSBs")]
+    wlsbs: Option<f64>,
+    scissors: Option<f64>,
+    #[serde(rename = "SFBs")]
+    sfbs: Option<f64>,
+    d_drolls: Option<f64>,
+    d_urolls: Option<f64>,
+    #[serde(rename = "dWLSBs")]
+    d_wlsbs: Option<f64>,
+    d_scissors: Option<f64>,
+    #[serde(rename = "dSFBs")]
+    d_sfbs: Option<f64>,
+    rrolls: Option<f64>,
+    redirects: Option<f64>,
+    contorts: Option<f64>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -729,6 +757,20 @@ impl<'a> KuehlmakScores<'a> {
     fn get_lr_score_u(c: [u64; 2]) -> f64 {
         Self::get_lr_score_f([c[0] as f64, c[1] as f64])
     }
+    fn get_wt_score(score: f64, weight: f64,
+                    factor: f64, target: Option<f64>) -> f64 {
+        let target = match target {
+            Some(t) if factor > 0.0 => t,
+            _                       => return weight * score
+        };
+        let factor = if weight < 0.0 {factor.recip()} else {factor};
+        if score <= target {
+            score / factor * weight
+        } else {
+            let off = target * (factor.recip() - factor);
+            (score * factor + off) * weight
+        }
+    }
 }
 
 impl<'a> EvalModel<'a> for KuehlmakModel {
@@ -780,37 +822,42 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
         self.score_imbalance(&mut scores);
 
         let strokes = scores.strokes as f64;
+        let w = &self.params.weights;
+        let t = &self.params.targets;
         scores.total = [
-            (self.params.weights.effort, scores.effort),
-            (self.params.weights.travel, scores.travel),
-            (self.params.weights.imbalance, scores.imbalance),
-            (self.params.weights.drolls / strokes,
-             KuehlmakScores::get_lr_score_u(scores.bigram_counts[BIGRAM_DROLL])),
-            (self.params.weights.urolls / strokes,
-             KuehlmakScores::get_lr_score_f(scores.urolls)),
-            (self.params.weights.wlsbs / strokes,
-             KuehlmakScores::get_lr_score_f(scores.wlsbs)),
-            (self.params.weights.scissors / strokes,
-             KuehlmakScores::get_lr_score_u(scores.bigram_counts[BIGRAM_SCISSOR])),
-            (self.params.weights.sfbs / strokes,
-             KuehlmakScores::get_lr_score_u(scores.bigram_counts[BIGRAM_SFB])),
-            (self.params.weights.d_drolls / strokes,
-             KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_D_DROLL])),
-            (self.params.weights.d_urolls / strokes,
-             KuehlmakScores::get_lr_score_f(scores.d_urolls)),
-            (self.params.weights.d_wlsbs / strokes,
-             KuehlmakScores::get_lr_score_f(scores.d_wlsbs)),
-            (self.params.weights.d_scissors / strokes,
-             KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_D_SCISSOR])),
-            (self.params.weights.d_sfbs / strokes,
-             KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_D_SFB])),
-            (self.params.weights.rrolls / strokes,
-             KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_RROLL])),
-            (self.params.weights.redirects / strokes,
-             KuehlmakScores::get_lr_score_u(scores.redirects)),
-            (self.params.weights.contorts / strokes,
-             KuehlmakScores::get_lr_score_u(scores.contorts)),
-        ].into_iter().map(|(score, weight)| score * weight).sum::<f64>();
+            (scores.effort, w.effort, t.effort),
+            (scores.travel, w.travel, t.travel),
+            (scores.imbalance, w.imbalance, t.imbalance.map(|x| x * 10.0)),
+            (KuehlmakScores::get_lr_score_u(scores.bigram_counts[BIGRAM_DROLL]) / strokes,
+             w.drolls, t.drolls),
+            (KuehlmakScores::get_lr_score_f(scores.urolls) / strokes,
+             w.urolls, t.urolls),
+            (KuehlmakScores::get_lr_score_f(scores.wlsbs) / strokes,
+             w.wlsbs, t.wlsbs),
+            (KuehlmakScores::get_lr_score_u(scores.bigram_counts[BIGRAM_SCISSOR]) / strokes,
+             w.scissors, t.scissors),
+            (KuehlmakScores::get_lr_score_u(scores.bigram_counts[BIGRAM_SFB]) / strokes,
+             w.sfbs, t.sfbs),
+            (KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_D_DROLL]) / strokes,
+             w.d_drolls, t.d_drolls),
+            (KuehlmakScores::get_lr_score_f(scores.d_urolls) / strokes,
+             w.d_urolls, t.d_urolls),
+            (KuehlmakScores::get_lr_score_f(scores.d_wlsbs) / strokes,
+             w.d_wlsbs, t.d_wlsbs),
+            (KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_D_SCISSOR]) / strokes,
+             w.d_scissors, t.d_scissors),
+            (KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_D_SFB]) / strokes,
+             w.d_sfbs, t.d_sfbs),
+            (KuehlmakScores::get_lr_score_u(scores.trigram_counts[TRIGRAM_RROLL]) / strokes,
+             w.rrolls, t.rrolls),
+            (KuehlmakScores::get_lr_score_u(scores.redirects) / strokes,
+             w.redirects, t.redirects),
+            (KuehlmakScores::get_lr_score_u(scores.contorts) / strokes,
+             w.contorts, t.contorts),
+        ].into_iter().map(|(score, weight, target)|
+                KuehlmakScores::get_wt_score(score, weight, t.factor,
+                                             target.map(|x| x / 1000.0)))
+         .sum::<f64>();
 
         scores
     }
