@@ -1,0 +1,40 @@
+corpus = '../corpus/wiki.json'
+initial_layout = '''
+  q  w  e  r  t  y  u  i  o  p
+  a  s  d  f  g  h  j  k  l ;:
+  z  x  c  v  b  n  m ,< .> /?
+'''
+board_type = 'Ortho'
+space_thumb = 'Any'
+
+[weights]
+index_finger = 1
+middle_finger = 1
+ring_finger = 3
+pinky_finger = 6
+effort = 0.2
+travel = 1.0
+imbalance = 0.05
+drolls = 0.0
+urolls = 1.0
+WLSBs = 2.0
+scissors = 15.0
+SFBs = 15.0
+d_drolls = 0
+d_urolls = 0.5
+dWLSBs = 1.0
+d_scissors = 7.5
+dSFBs = 7.5
+rrolls = 0.0
+redirects = 5.0
+contorts = 5.0
+
+[constraints]
+ref_weight = 0.0
+ref_threshold = 0.0
+top_weight = 0.0
+mid_weight = 0.0
+bot_weight = 0.0
+homing_weight = 0.0
+zxcv = 0.0
+nonalpha = 0.0

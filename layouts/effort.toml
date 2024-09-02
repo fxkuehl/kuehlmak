@@ -1,0 +1,24 @@
+[weights]
+effort = 1
+travel = 0
+imbalance = 0
+drolls = 0
+urolls = 0
+WLSBs = 0
+scissors = 0
+SFBs = 0
+d_drolls = 0
+d_urolls = 0
+dWLSBs = 0
+d_scissors = 0
+dSFBs = 0
+rrolls = 0
+redirects = 0
+contorts = 0
+
+[constraints]
+#ref_layout = "./qwerty.kbl"
+#ref_weight = 1
+#ref_threshold = 0
+#zxcv = 0.1
+#nonalpha = 0.1
