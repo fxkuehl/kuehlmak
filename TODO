@@ -1,0 +1,89 @@
+Before public release (1.0)
+=====================
+
+- Tune fitness function for optional targets. Use square or square root
+  with slope = 1 at the target value. Maybe make the exponent configurable as
+  well to change the strength of the target
+- add AngleANSI layout for angle-mod on ANSI keyboards
+- [maybe] rename ISO to AngleISO
+
+Mid term (1.x)
+========
+
+These changes are unlikely to break the CLI, config file format or corpus JSON.
+
+- create better corpus (based on google books rather than wikipedia)
+- use background color in heat map (blue-cyan-grey-magenta-red-yellow)
+  (create color buckets based on letter frequencies so that each bucket
+   represents about the same number of keystrokes)
+- use font color for n-grams (green-<neutral>-red, if target is set)
+- implement normalizing and mixing of corpora
+- with normalized corpora, try if using u32 instead of u64 is faster for
+  counting key costs and n-grams
+  may also have advantages of preserving accuracy in conversion to f64 scores
+- try if f32 for travel and scores has any perf advantage
+- implement filtering of layouts (in rank and stats subcommands) by score-based
+  conditions
+
+Longer term (2.x)
+===========
+
+More involved changes that can break the CLI, config file format or corpus JSON.
+Also some nice-to-haves.
+
+- Insert Shift before first in a sequence of capitalized letter or shifted
+  symbols
+  - Promoting bigrams 'lU' or ' U' to trigrams 'l_U' or ' _U'
+  - Drop 3-grams that include such bigrams
+- add support for thumb letters
+  - need a representation of thumb keys
+    (are they part of the same hand or counted as separate for letter and
+     n-gram stats?)
+- [maybe] Change constraint configuration with one group for each constraint
+- Constraint for soft-pinning keys. Maybe this could replace the ref_layout
+  constraint. Could specify different weights for same-finger, same-hand,
+  other-hand. And a global threshold.
+- CLI changes:
+  - update to newer version of clap
+  - kuehlmak config (show config: weights instead of stats, update config file)
+  - kuehlmak eval -i (interactive mode) (later)
+  - [maybe] kuehlmak reset (delete kbl files)
+- output options:
+  - [maybe] visualize column-stagger (two rows on top)
+  - output HTML (with color)
+- add histogram plotting for population stats
+
+
+How to ignore ranking output and manually edited layouts in ranking?
+====================================================================
+- Use a different file extension
+- Use a special prefix for layouts from annealing
+- ***Ignore layouts that don't have a ### popularity line***
+- Maybe: ***Add option to specify files to rank***
+
+Setting targets for scores with curves
+======================================
+Applying a curve to a score. Use a power function with exponent p and slope = 1
+at the target value T. For p > 1, the slope is < 1 for x < T, or > 1 for x > T.
+For scores with negative weight, use the equivalent root function (p < 1).
+
+c(x) = a * x^p
+c'(x) = a*p * x^(p-1)
+
+c'(T) = 1 = a*p * T^(p-1) <==>  a = 1 / (p * T^(p-1))
+
+           x^p
+c(x) = -----------
+       p * T^(p-1)
+
+Example: p = 2
+
+c(x) = x^2 / (2T)
+c'(x) = x/T
+c'(T) = 1
+
+Example: p = 3
+
+c(x) = x^3 / (3T^2)
+c'(x) = 3x^2 / (3T^2) = x^2 / T^2
+c'(T) = 1
