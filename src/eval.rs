@@ -182,6 +182,7 @@ pub enum KeyboardType {
     Hex,
     HexStag,
     ANSI,
+    Angle,
     ISO,
 }
 
@@ -471,6 +472,10 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                     [[" ", " \\\\\\ ", "|", "\\", "  \\\\\\", "   "],
                      ["  ", " \\\\\\ ", "\\", " ", "\\ \\\\\\", "  "],
                      ["    ", " \\\\\\ ", "\\", " ", "\\ \\\\\\", ""]],
+                KeyboardType::Angle =>
+                    [[" ", " \\\\\\ ", "|", "\\", "  \\\\\\", "   "],
+                     ["  ", " /// ", "\\",     " ", "\\ \\\\\\", "  "],
+                     ["    ", "///  ", "\\", " ", "\\ \\\\\\", ""]],
                 KeyboardType::ISO =>
                     [[" ", " \\\\\\ ", "|",  "\\", "  \\\\\\", "   "],
                      ["  ", " /// ", "\\",     " ", "\\ \\\\\\", "  "],
@@ -895,8 +900,7 @@ impl<'a> EvalModel<'a> for KuehlmakModel {
     }
     fn is_symmetrical(&'a self) -> bool {
         match self.params.board_type {
-            KeyboardType::ISO => false,
-            KeyboardType::ANSI => false,
+            KeyboardType::ANSI | KeyboardType::Angle | KeyboardType::ISO => false,
             _ => self.params.space_thumb == Hand::Any &&
                  self.params.constraints.ref_layout == None &&
                  self.params.constraints.zxcv == 0.0 &&
@@ -1319,7 +1323,7 @@ impl KuehlmakModel {
         // Enumerate scissors on left hand going left->right. Compute the rest
         // from the symmetries.
         let mut scissors_lr = vec![
-            (0u8, 11u8), (0, 21), (0, 12), (0, 22), (0, 23), (10, 21), (20, 1), (20, 2), (20, 3),
+            (0u8, 11u8), (0, 21), (0, 12), (0, 22), (0, 23), (10, 21),
             (1, 22), (1, 23), (21, 2), (21, 3), (2, 23), (22, 3),
             (0, 24), (1, 24), (2, 24)];
         // Adjust top row for KeyboardType::Hex
@@ -1334,9 +1338,22 @@ impl KuehlmakModel {
                     _ => (),
                 }
             }
-            scissors_lr.extend([(0u8, 11u8), (0, 21), (0, 12), (0, 22), (0, 23), (0, 24)]);
+            scissors_lr.extend([(0u8, 11u8), (0, 21), (0, 12), (0, 22), (0, 23), (0, 24),
+                                (20, 1), (20, 2), (20, 3)]);
+        } else if let KeyboardType::Angle = params.board_type {
+            for b in scissors_lr.iter_mut() {
+                match b.0 {
+                    21..=24 => b.0 -= 1,
+                    _ => (),
+                }
+                match b.1 {
+                    21..=24 => b.1 -= 1,
+                    _ => (),
+                }
+            }
+            scissors_lr.extend([(0u8, 24u8), (1, 24), (2, 24), (20, 4), (21, 4)]);
         } else {
-            scissors_lr.extend([(20u8, 4u8), (21, 4), (22, 4)]);
+            scissors_lr.extend([(20u8, 1u8), (20, 2), (20, 3), (20, 4), (21, 4), (22, 4)]);
         }
         let mut scissors = Vec::new();
         scissors.extend(&scissors_lr);
@@ -1490,6 +1507,19 @@ impl KuehlmakModel {
                 9     => (Hand::R, Finger::Rp, params.weights.pinky_finger,  9.0, true),
                 _     => panic!("col out of range"),
             },
+            KeyboardType::Angle if row == 2 => match col {
+                0     => (Hand::L, Finger::Lr, params.weights.ring_finger,   0.0, false),
+                1     => (Hand::L, Finger::Lm, params.weights.middle_finger, 1.0, false),
+                2     => (Hand::L, Finger::Li, params.weights.index_finger,  2.0, false),
+                3     => (Hand::L, Finger::Li, params.weights.index_finger,  2.0, true),
+                4     => (Hand::L, Finger::Li, params.weights.index_finger,  2.0, true),
+                5     => (Hand::R, Finger::Ri, params.weights.index_finger,  6.0, true),
+                6     => (Hand::R, Finger::Ri, params.weights.index_finger,  6.0, false),
+                7     => (Hand::R, Finger::Rm, params.weights.middle_finger, 7.0, false),
+                8     => (Hand::R, Finger::Rr, params.weights.ring_finger,   8.0, false),
+                9     => (Hand::R, Finger::Rp, params.weights.pinky_finger,  9.0, false),
+                _     => panic!("col out of range"),
+            },
             _ => match col {
                 0     => (Hand::L, Finger::Lp, params.weights.pinky_finger,  0.0, false),
                 1     => (Hand::L, Finger::Lr, params.weights.ring_finger,   1.0, false),
@@ -1510,6 +1540,7 @@ impl KuehlmakModel {
             KeyboardType::Hex     => (&KEY_OFFSETS_HEX, &KEY_COST_HEX),
             KeyboardType::HexStag => (&KEY_OFFSETS_HEX, &KEY_COST_HEX_STAG),
             KeyboardType::ANSI    => (&KEY_OFFSETS_ANSI, &KEY_COST_ANSI),
+            KeyboardType::Angle   => (&KEY_OFFSETS_ANGLE, &KEY_COST_ANGLE),
             KeyboardType::ISO     => (&KEY_OFFSETS_ISO, &KEY_COST_ISO),
         };
         let h = match hand {
@@ -1584,6 +1615,7 @@ type KeyOffsets = [[f32; 2]; 4];
 const KEY_OFFSETS_ORTHO: KeyOffsets = [[ 0.0,   0.0 ], [0.0, 0.0], [ 0.0, 0.0], [0.0, 0.0]];
 const KEY_OFFSETS_HEX:   KeyOffsets = [[-1.0,   1.0 ], [0.0, 0.0], [ 0.0, 0.0], [0.0, 0.0]];
 const KEY_OFFSETS_ANSI:  KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [ 0.5, 0.5], [0.0, 0.0]];
+const KEY_OFFSETS_ANGLE: KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [-0.5, 0.5], [0.0, 0.0]];
 const KEY_OFFSETS_ISO:   KeyOffsets = [[-0.25, -0.25], [0.0, 0.0], [-0.5, 0.5], [0.0, 0.0]];
 const KEY_COST_ORTHO: [u8; 31] = [
     4,  2,  2,  4, 12, 12,  4,  2,  2,  4,
@@ -1613,6 +1645,12 @@ const KEY_COST_ANSI: [u8; 31] = [
     4,  2,  2,  4,  6, 12,  4,  2,  2,  4,
      1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
        2,  4,  4,  2,  9,  3,  2,  4,  4,  2,
+                         1
+];
+const KEY_COST_ANGLE: [u8; 31] = [
+    4,  2,  2,  4,  6, 12,  4,  2,  2,  4,
+     1,  1,  1,  1,  3,  3,  1,  1,  1,  1,
+       4,  4,  2,  3, 12,  3,  2,  4,  4,  2,
                          1
 ];
 const KEY_COST_ISO: [u8; 31] = [
