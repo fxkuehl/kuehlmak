@@ -1530,7 +1530,7 @@ impl KuehlmakModel {
         let mut calc_d_rel = |r: usize, c: usize| {
             let dx = c as f32 - col as f32 + key_offsets[r][h] - key_offsets[row][h];
             let dy = r as f32 - row as f32;
-            d_rel[(r * 10 + c)] = (dx*dx + dy*dy).sqrt();
+            d_rel[r * 10 + c] = (dx*dx + dy*dy).sqrt();
         };
         for r in 0..3 {
             for c in 0..10 {
