@@ -325,19 +325,19 @@ impl Default for KuehlmakWeights {
             middle_finger: 1,
             ring_finger:   2,
             pinky_finger:  6,
-            effort:        0.1,
+            effort:        0.2,
             travel:        1.0,
             imbalance:     0.05,
-            drolls:       -0.5, // slightly better than hand alternation
-            urolls:        0.5, // slightly worse than alternation
-            wlsbs:         1.0,
+            drolls:       -1.0, // slightly better than hand alternation
+            urolls:        1.0, // slightly worse than alternation
+            wlsbs:         2.0,
             scissors:     10.0,
             sfbs:         10.0,
             d_drolls:     -0.5,
             d_urolls:      0.5,
             d_wlsbs:       1.0,
-            d_scissors:   10.0,
-            d_sfbs:       10.0,
+            d_scissors:    5.0,
+            d_sfbs:        5.0,
             rrolls:       -0.5,
             redirects:     5.0,
             contorts:     10.0,
