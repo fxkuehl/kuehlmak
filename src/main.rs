@@ -653,14 +653,14 @@ fn init_command(sub_m: &ArgMatches) {
 
 fn main() {
     let app_m = clap_app!(kuehlmak =>
-        (version: "0.1")
+        (version: "1.0")
         (author: "Felix Kühling")
         (about: "Keyboard layout analyzer and optimizer")
         (@subcommand corpus =>
             (about: "Compute corpus statistics, write JSON to stdout")
-            (version: "0.1")
+            (version: "1.0")
             (@arg alphabet: -a --alphabet +takes_value
-                "Filter stats only for those symbols\n(e.g. '-_a-z;,./<>?:')")
+                "Filter stats only for those symbols\n(e.g. '-_a-z;,./<>?: ')")
             (@arg min: -m --min +takes_value
                 "Drop symbols and n-grams with lower count")
             (@arg pretty: --pretty
@@ -670,7 +670,7 @@ fn main() {
         )
         (@subcommand anneal =>
             (about: "Generate layouts with Simulated Annealing")
-            (version: "0.1")
+            (version: "1.0")
             (@arg dir: -d --dir +takes_value
                 "Workspace directory [current directory]")
             (@arg config: -c --config +takes_value
@@ -690,7 +690,7 @@ fn main() {
         )
         (@subcommand eval =>
             (about: "Evaluate layouts")
-            (version: "0.1")
+            (version: "1.0")
             (@arg config: -c --config +takes_value
                 "Configuration file [./config.toml]")
             (@arg verbose: -v --verbose
@@ -702,7 +702,7 @@ fn main() {
         )
         (@subcommand rank =>
             (about: "Rank layouts")
-            (version: "0.1")
+            (version: "1.0")
             (@arg dir: -d --dir +takes_value
                 "Workspace directory [current directory]")
             (@arg config: -c --config +takes_value
@@ -720,7 +720,7 @@ fn main() {
         )
         (@subcommand stats =>
             (about: "Print population statistics")
-            (version: "0.1")
+            (version: "1.0")
             (@arg dir: -d --dir +takes_value
                 "Workspace directory [current directory]")
             (@arg config: -c --config +takes_value
@@ -730,7 +730,7 @@ fn main() {
         )
         (@subcommand init =>
             (about: "Create workspace and initialize configuration file")
-            (version: "0.1")
+            (version: "1.0")
             (@arg dir: -d --dir +takes_value
                 "Workspace directory [current directory]")
             (@arg config: -c --config +takes_value
