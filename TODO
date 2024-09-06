@@ -1,12 +1,3 @@
-Before public release (1.0)
-=====================
-
-- Tune fitness function for optional targets. Use square or square root
-  with slope = 1 at the target value. Maybe make the exponent configurable as
-  well to change the strength of the target
-- add AngleANSI layout for angle-mod on ANSI keyboards
-- [maybe] rename ISO to AngleISO
-
 Mid term (1.x)
 ========
 
