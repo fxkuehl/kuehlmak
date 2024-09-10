@@ -3,7 +3,6 @@ Mid term (1.x)
 
 These changes are unlikely to break the CLI, config file format or corpus JSON.
 
-- create better corpus (based on google books rather than wikipedia)
 - use background color in heat map (blue-cyan-grey-magenta-red-yellow)
   (create color buckets based on letter frequencies so that each bucket
    represents about the same number of keystrokes)
