@@ -1004,7 +1004,8 @@ impl KuehlmakModel {
             }
         }
         for count in scores.bigram_counts.iter_mut().flatten() {
-            *count = *count * ts.total_bigrams() / total;
+            *count = ((*count as u128 * ts.total_bigrams() as u128)
+                      / total as u128) as u64;
         }
         for (travel, orig) in scores.finger_travel.iter_mut()
                                     .zip(orig_finger_travel) {
@@ -1067,7 +1068,8 @@ impl KuehlmakModel {
             }
         }
         for count in scores.trigram_counts.iter_mut().flatten() {
-            *count = *count * ts.total_trigrams() / total;
+            *count = ((*count as u128 * ts.total_trigrams() as u128)
+                      / total as u128) as u64;
         }
         for (travel, orig) in scores.finger_travel.iter_mut()
                                     .zip(orig_finger_travel) {
