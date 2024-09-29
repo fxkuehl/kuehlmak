@@ -511,7 +511,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
             writeln!(w, "{}", suffix)
         };
 
-        let write_ngram_u = |w: &mut W, g: &[u64; 2]| {
+        let write_ngram_u = |w: &mut W, g: [u64; 2]| {
             let ind = if g[0]     >= g[1] * 3 {'«'}  // worse than 75:25
                  else if g[0] * 2 >= g[1] * 3 {'‹'}  // 75:25 - 60:40
                  else if g[0] * 3 >  g[1] * 2 {' '}  // 60:40 - 40:60
@@ -519,11 +519,11 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                  else                         {'»'}; // worse than 25:75
             let val = match show_scores {
                 false => (g[0] + g[1]) as f64,
-                true  => (((g[0]*g[0] + g[1]*g[1]) * 2) as f64).sqrt(),
+                true  => Self::get_lr_score_u(g),
             } * norm;
             write!(w, "{:5.1}{}", val, ind)
         };
-        let write_ngram_f = |w: &mut W, g: &[f64; 2]| {
+        let write_ngram_f = |w: &mut W, g: [f64; 2]| {
             let ind = if g[0]       >= g[1] * 3.0 {'«'}
                  else if g[0] * 2.0 >= g[1] * 3.0 {'‹'}
                  else if g[0] * 3.0 >  g[1] * 2.0 {' '}
@@ -531,7 +531,7 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
                  else                             {'»'};
             let val = match show_scores {
                 false => g[0] + g[1],
-                true  => ((g[0].powi(2) + g[1].powi(2)) * 2.0).sqrt(),
+                true  => Self::get_lr_score_f(g),
             } * norm;
             write!(w, "{:5.1}{}", val, ind)
         };
@@ -545,20 +545,20 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         write_heat_row(w, key_space[0])?;
 
         write!(w, " AB ")?;
-        write_ngram_u(w, &self.bigram_counts[BIGRAM_DROLL])?;
-        write_ngram_f(w, &self.urolls)?;
-        write_ngram_f(w, &self.wlsbs)?;
-        write_ngram_u(w, &self.bigram_counts[BIGRAM_SCISSOR])?;
-        write_ngram_u(w, &self.bigram_counts[BIGRAM_SFB])?;
+        write_ngram_u(w, self.bigram_counts[BIGRAM_DROLL])?;
+        write_ngram_f(w, self.urolls)?;
+        write_ngram_f(w, self.wlsbs)?;
+        write_ngram_u(w, self.bigram_counts[BIGRAM_SCISSOR])?;
+        write_ngram_u(w, self.bigram_counts[BIGRAM_SFB])?;
         write!(w, "|")?;
         write_key_row(w, key_space[1])?;
 
         write!(w, "A_B ")?;
-        write_ngram_u(w, &self.trigram_counts[TRIGRAM_D_DROLL])?;
-        write_ngram_f(w, &self.d_urolls)?;
-        write_ngram_f(w, &self.d_wlsbs)?;
-        write_ngram_u(w, &self.trigram_counts[TRIGRAM_D_SCISSOR])?;
-        write_ngram_u(w, &self.trigram_counts[TRIGRAM_D_SFB])?;
+        write_ngram_u(w, self.trigram_counts[TRIGRAM_D_DROLL])?;
+        write_ngram_f(w, self.d_urolls)?;
+        write_ngram_f(w, self.d_wlsbs)?;
+        write_ngram_u(w, self.trigram_counts[TRIGRAM_D_SCISSOR])?;
+        write_ngram_u(w, self.trigram_counts[TRIGRAM_D_SFB])?;
         write!(w, "|")?;
         write_heat_row(w, key_space[1])?;
 
@@ -566,9 +566,9 @@ impl<'a> EvalScores for KuehlmakScores<'a> {
         write_key_row(w, key_space[2])?;
 
         write!(w, "ABC ")?;
-        write_ngram_u(w, &self.trigram_counts[TRIGRAM_RROLL])?;
-        write_ngram_u(w, &self.redirects)?;
-        write_ngram_u(w, &self.contorts)?;
+        write_ngram_u(w, self.trigram_counts[TRIGRAM_RROLL])?;
+        write_ngram_u(w, self.redirects)?;
+        write_ngram_u(w, self.contorts)?;
         write!(w, "  {:4.2}:{:4.2} |", self.hand_runs[0], self.hand_runs[1])?;
         write_heat_row(w, key_space[2])?;
 
