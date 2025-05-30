@@ -274,7 +274,7 @@ pub struct KuehlmakParams {
     space_thumb: Hand,
     weights: KuehlmakWeights,
     targets: KuehlmakTargets,
-    constraints: ConstraintParams,
+    pub constraints: ConstraintParams,
 }
 
 impl Default for KuehlmakParams {
@@ -389,6 +389,9 @@ pub struct ConstraintParams {
     homing_weight: f64,
     zxcv: f64,
     nonalpha: f64,
+    pub forced_keys: Option<String>,
+    #[serde(skip, default = "Vec::new")]
+    pub forced_keys_vec: Vec<(char, usize)>,
 }
 
 #[derive(Clone)]
@@ -1165,6 +1168,7 @@ impl KuehlmakModel {
         if params.nonalpha != 0.0 {
             score += params.nonalpha * Self::eval_nonalpha(layout);
         }
+        score += Self::eval_forced_coded(layout, &params.forced_keys_vec);
         score
     }
 
@@ -1248,6 +1252,15 @@ impl KuehlmakModel {
 
         n += layout[27..30].iter().filter(|[c, _]| c.is_alphabetic()).count();
         n as f64 / 4.0
+    }
+
+    fn eval_forced_coded(layout: &Layout, forced_keys: &Vec<(char, usize)>) -> f64{
+        let mismatched: usize = forced_keys.iter().map(|(chr, i)| {if layout[*i][0] != *chr {1} else {0}}).sum();
+        let total: f64 = forced_keys.len() as f64;
+        if mismatched == 0 {
+            return -1.0 / total;
+        }
+        return mismatched as f64 / total;
     }
 
     // Per-row keycap constraints to evaluate, whether a layout can be built

@@ -297,6 +297,15 @@ zxcv = 0.1
 
 This constraint imposes penalties for putting ZXCV outside the left bottom row or in the wrong order.
 
+#### Selected keys at specific positions
+
+```
+[constraints]
+forced_keys = ",./;"
+```
+
+This constraint imposes penalties for putting selected keys in positions divergent from the ones provided by `initial_layout`.
+
 #### Punctuation Characters in the Colemak Locations
 
 ```

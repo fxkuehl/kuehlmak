@@ -11,6 +11,7 @@ use clap::{clap_app, ArgMatches};
 use serde::{Serialize, Deserialize};
 
 use threadpool;
+use std::collections::HashMap;
 use std::sync::mpsc::channel;
 
 use std::path::{PathBuf, Path};
@@ -56,6 +57,20 @@ struct Config {
     params: KuehlmakParams,
 }
 
+fn find_char_indexes_in_layout(layout: &Layout, search_string: &str) -> Option<Vec<(char, usize)>> {
+    let indexes: HashMap<char, usize> = layout
+        .iter()
+        .enumerate()
+        .map(|(index, pair)| (pair[0], index))
+        .collect();
+    
+    search_string
+        .chars()
+        .map(|c| indexes.get(&c).copied().map(|idx| (c, idx)))
+        .collect()
+}
+
+
 fn config_from_file<P>(path: P) -> Config
     where P: AsRef<Path> + Copy
 {
@@ -82,6 +97,16 @@ fn config_from_file<P>(path: P) -> Config
         process::exit(1);
     });
     env::set_current_dir(&prev_dir).expect("Failed to set current dir");
+    if let Some(forced_keys) = &config.params.constraints.forced_keys {
+        let indexes = find_char_indexes_in_layout(
+            &config.initial_layout
+                   .expect("Can't force keys, if no initial layout is provided"),
+            forced_keys
+        );
+        if let Some(indexes) = indexes {
+            config.params.constraints.forced_keys_vec = indexes;
+        }
+    }
     config
 }
 
