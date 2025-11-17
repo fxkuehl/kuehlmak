@@ -29,6 +29,7 @@ Also some nice-to-haves.
   - need a representation of thumb keys
     (are they part of the same hand or counted as separate for letter and
      n-gram stats?)
+- Support bigger layouts up to full ANSI/ISO 60% (minus Ctrl,Alt,Win,Menu)
 - [maybe] Change constraint configuration with one group for each constraint
 - Constraint for soft-pinning keys. Maybe this could replace the ref_layout
   constraint. Could specify different weights for same-finger, same-hand,
@@ -40,9 +41,274 @@ Also some nice-to-haves.
   - [maybe] kuehlmak reset (delete kbl files)
 - output options:
   - [maybe] visualize column-stagger (two rows on top)
-  - output HTML (with color)
+  - output HTML or SVG (with color)
 - add histogram plotting for population stats
 
+Goals for 2.0
+=============
+
+The main goal is to count Shift in key, bigram and 3-gram counts. This also
+requires representing more keys, including thumb keys. While I'm there, I
+also want to support complete 60% layouts with numbers and symbols.
+
+- 60% ANSI: full row-staggered ANSI layout with number row and all symbols
+  55 keys without Ctl, Win, Alt, Menu, Caps, Tab and with a split space key
+- 60% ISO: full row-staggered ISO layout with number row and all symbols
+  56 keys without Ctl, Win, Alt, Menu, Caps, Tab and with a split space key
+- 12x4 Ortho/ColStag + 2x3 thumb keys: 54 keys
+- 12x3 Ortho/ColStag + 2x3 thumb keys: 42 keys
+- 10x3 Ortho/ColStag + 2x3 tnumb keys: 36 keys (closest to v1.0)
+- Bigger Hex layouts (Bumblebee 60% or Hornet 50%)
+
+Allow letters and symbols on Thumb keys.
+
+I need a way to specify the location of Space and Shift keys, optionally
+one Space/Shift per hand.
+
+Allow home-row mods (Shift on the same key as a letter/symbol).
+
+Allow marking keys as unused or not present, will not be used by optimizer.
+
+Allow pinning of keys so they will not be moved by the optimizer. Could use
+a constraint, but that's inefficient. Better if the search code could just
+skip pinned and unused keys.
+
+If Shift is needed, insert it in the key sequence like a one-shot key. If
+there is one Shift key per hand, use the one opposite the next letter.
+
+If there is one Space key per hand, use the one opposite the next letter.
+
+Enable an experiment with auto-shift after Space using same-hand Space.
+
+P2: Add support for additional layers for symbols on small layouts. For each
+layer (Shift, L3, L4) let user specify whether the layer is independent of
+the base layer or tied to it. If tied, symbols move together with base-layer
+movement. Otherwise they move separately.
+
+Ideas for implementing 2.0
+==========================
+
+Need to stop converting text to lower-case when generating corpora.
+
+Variable layou size requires a more flexible definition of a layout, maybe by
+passing around slices instead of fixed- size array references.
+
+For efficiency, layout could still be a maximally sized array with around
+56 elements. Or a heap-allocated vector, if allocation is not on a
+performance-critical path. The layout determines KeyProps, including position
+and handedness of keys.
+
+Make sure to eliminate any remaining use of modulo division to determine
+rows, columns or fingers.
+
+Parsing of layouts needs some new representations of Shift and Space that now
+need to be made explicit. Use double-same-charaters for special functions of
+keys because they should never occur in real layouts:
+
+  -- Unused
+  __ Space
+  ^^ Shift
+  ## Layer 3
+  $$ Layer 4
+
+Shift and layer keys can be combined with symbols for ModTap/LayerTap, e.g.
+^^tT.
+
+Also more layers means up to four symbols per key.
+
+Add the layout type to the .kbl files.
+
+Eval and rank commands ignore layouts of the wrong type. Add an option to
+enable all layout types. --any
+
+Pinned keys should be specified in a separate option because it's not
+intrinsic to the layout. Unused, Space, Shift and Layer keys are implicitly
+locked.
+
+Pinned keys and independent layers need to be honored by EvalModel::neighbor.
+Need lists of movable keys and movable finger_keys. Also need a better
+implementation of layout.shuffle rather than just relying on the array or
+slice method.
+
+Need a new way of printing bigger layouts. Will need more rows for layouts
+with thumb keys and potentially a number row. Full 60% layout is 14 keys wide
+or 14x4=56 columns wide. That leaves only 24 columns for the stats table.
+Needs to be reformatted. May need to go beyond 80 columns at least for wider
+60% layouts. Ignore unused keys. How to represent ModTaps? Maybe by changing
+the [  ] brackets around keys to a different character. Or using the free
+space in single-letter keys.
+
+Support for more layers will make layout-printing messy. Maybe leave out the
+extra layers. Or add more width to keys, or make keys double-height.
+
+Mockups
+=======
+
+Some layout and stats mockups.
+
+ANSI 55 (4 rows)
+-------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹|[`~][1!][2@][3#][4$][5%][6^]|[7&][8*][9(][0)][-_][+=][ -- ]
+  URoll  95.6« 61.9«|  0   0   0 / 0 / 0 / 0   0 |  0   0 / 0 / 0 / 0   0
+   WLSB  78.7  63.8‹|[ -- ] [Q] [W] [E] [R] [T]| [Y] [U] [I] [O] [P][[{][]}][\|]
+Scissor  25.2   9.9 |        1 \12 \98 \54  72 | 13  22 \63 \60 \18   0   0   0
+    SFB  49.5‹ 45.0‹|[  -- ] [A] [S] [D] [F] [G]| [H] [J] [K] [L][;:]['"][  -- ]
+  Runs          ABC |        70 \55 \32 \18  16 | 37   2 \ 5 \34 \ 1   0
+L 1.70  RRoll  14.6«|[   ^^  ] [Z] [X] [C] [V] [B]| [N] [M][,<][.>][/?][   ^^  ]
+R 1.49  Redir  31.8‹|     0     1 \ 2 |29 \ 9  12 | 61  22 \10 \ 9 \ 0      0
+      Contort  59.1‹|                 [    __    ]|[    __    ]
+<35.2% Balanced Raw |                      85     |     78
+Effort 5031.6 3948.9|      566= 72+ 69+159+181+ 85| 78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9|      605=  4+ 21+245+287+  0|  0+260+ 78+ 93+ 17=502
+
+ISO 56 (4 rows, angle mod)
+------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹|[`~][1!][2@][3#][4$][5%][6^]|[7&][8*][9(][0)][-_][+=][ -- ]
+  URoll  95.6« 61.9«|  0   0   0 / 0 / 0 / 0   0 |  0 \ 0 \ 0 \ 0   0   0
+   WLSB  78.7  63.8‹|[ -- ] [Q] [W] [E] [R] [T]| [Y] [U] [I] [O] [P][[{][]}][--]
+Scissor  25.2   9.9 |        1 \12 \98 \54  72 | 13  22 \63 \60 \18   0   0  [-]
+    SFB  49.5‹ 45.0‹|[  -- ] [A] [S] [D] [F] [G]| [H] [J] [K] [L][;:]['"][\|][-]
+  Runs          ABC |        70 /55 /32 /18  16 | 37   2 \ 5 \34 \ 1   0   0
+L 1.70  RRoll  14.6«|[ ^^][ Z] [X] [C] [V] [B][<>]| [N] [M][,<][.>][/?][   ^^  ]
+R 1.49  Redir  31.8‹|   0   1 / 2 /29 / 9  12   0 | 61  22 \10 \ 9 \ 0      0
+      Contort  59.1‹|                 [    __    ]|[    __    ]
+<35.2% Balanced Raw |                      85     |     78
+Effort 5031.6 3948.9|      566= 72+ 69+159+181+ 85| 78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9|      605=  4+ 21+245+287+  0|  0+260+ 78+ 93+ 17=502
+
+Ortho 54 (4 rows)
+--------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹| [`~][1!][2@][3#][4$][5%]    |    [6^][7&][8*][9(][0)][\|]
+  URoll  95.6« 61.9«|   0   0 | 0 | 0 | 0   0     |      0   0 | 0 | 0 | 0   0
+   WLSB  78.7  63.8‹| [--] [Q] [W] [E] [R] [T]    |     [Y] [U] [I] [O] [P][+=]
+Scissor  25.2   9.9 |       1 |12 |98 |54  72     |     13  22 |63 |60 |18   0
+    SFB  49.5‹ 45.0‹| [-_] [A] [S] [D] [F] [G]    |     [H] [J] [K] [L][;:]['"]
+  Runs          ABC |   0  70 |55 |32 |18  16     |     37   2 | 5 |34 | 1   0
+L 1.70  RRoll  14.6«| [^^] [Z] [X] [C] [V] [B]    |     [N] [M][,<][.>][/?][^^]
+R 1.49  Redir  31.8‹|   0   1 | 2 |29 | 9  12     |     61  22 |10 | 9 | 0   0
+Contort  59.1‹      |               [--][__][[{]  |  []}][__][--]
+<35.2% Balanced Raw |                    85   0   |    0  78
+Effort 5031.6 3948.9| 566= 72+ 69+159+181+ 85     |     78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9| 605=  4+ 21+245+287+  0     |      0+260+ 78+ 93+ 17=502
+
+Columnar 54 (4 rows)
+-----------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹|             [3#][4$][5%]    |    [6^][7&][8*]
+  URoll  95.6« 61.9«|         [2@]  0 | 0   0     |      0   0 | 0 [9(]
+   WLSB  78.7  63.8‹| [`~][1!]  0  [E] [R] [T]    |     [Y] [U] [I]  0 [0)][\|]
+Scissor  25.2   9.9 |   0   0  [W] 98 |54  72     |     13  22 |63  [O]  0   0
+    SFB  49.5‹ 45.0‹| [--] [Q] 12  [D] [F] [G]    |     [H] [J] [K] 60  [P][+=]
+  Runs          ABC |   0   1  [S] 32 |18  16     |     37   2 | 5  [L]  0
+L 1.70  RRoll  14.6«| [-_] [A] 55  [C] [V] [B]    |     [N] [M][,<] 34 [;:]['"]
+R 1.49  Redir  31.8‹|   0  70  [X] 29 | 9  12     |     61  22 |10 [.>]  1   0
+Contort  59.1‹      | [^^] [Z]  2   [--][__][[{]  |  []}][__][--]    9 [/?][^^]
+<35.2% Balanced Raw |   0   1            85   0   |    0  78             0   0
+Effort 5031.6 3948.9| 566= 72+ 69+159+181+ 85     |     78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9| 605=  4+ 21+245+287+  0     |      0+260+ 78+ 93+ 17=502
+
+Columnar 42 (3 rows)
+-----------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹|              [E]            |             [I]
+  URoll  95.6« 61.9«|          [W] 98  [R] [T]    |     [Y] [U] 63  [O]
+   WLSB  78.7  63.8‹|          12  [D] 54  72     |     13  22  [K] 60
+Scissor  25.2   9.9 | [--] [Q] [S] 32  [F] [G]    |     [H] [J]  5  [L] [P][+=]
+    SFB  49.5‹ 45.0‹|   0   1  55  [C] 18  16     |     37   2 [,<] 34   0
+  Runs          ABC | [-_] [A] [X] 29  [V] [B]    |     [N] [M] 10 [.>][;:]['"]
+L 1.70  RRoll  14.6«|   0  70   2       9  12     |     61  22       9   1   0
+R 1.49  Redir  31.8‹| [^^] [Z]                    |                    [/?][^^]
+Contort  59.1‹      |   0   1       [--][__][[{]  |  []}][__][--]        0   0
+<35.2% Balanced Raw |                    85   0   |    0  78
+Effort 5031.6 3948.9| 566= 72+ 69+159+181+ 85     |     78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9| 605=  4+ 21+245+287+  0     |      0+260+ 78+ 93+ 17=502
+
+Hexagonal 56 (4 rows, symmetric-ish row stagger, Bumblebee-ish)
+------------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹|    [`~][1!][2@][3#][4$][5%] | [6^][7&][8*][9(][0)][\|]
+  URoll  95.6« 61.9«|      0   0   0 / 0 / 0 / 0 /    0 \ 0 \ 0 \ 0   0   0
+   WLSB  78.7  63.8‹|  [--][+=] [Q] [W] [E] [R] |  [Y] [U] [I] [O] [P][[{][]}]
+Scissor  25.2   9.9 |        0   1 /12 /98 /54   \ 13  22 \63 \60 \18   0   0
+    SFB  49.5‹ 45.0‹|    [-_] [A] [S] [D] [F] [T] \  [H] [J] [K] [L][;:]['"]
+  Runs          ABC |      0  70 /55 /32 /18  72   \ 37   2 \ 5 \34 \ 1   0
+L 1.70  RRoll  14.6«|  [^^] [Z] [X] [C] [V] [G] [B] |  [N] [M][,<][.>][/?][^^]
+R 1.49  Redir  31.8‹|    0   1 / 2 /29 / 9  16  12 /   61  22 \10 \ 9 \ 0   0
+Contort  59.1‹      |                [--][__][--] | [--][__][--]
+<35.2% Balanced Raw |                     85      |      78
+Effort 5031.6 3948.9|  566= 72+ 69+159+181+ 85    |    78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9|  605=  4+ 21+245+287+  0    |     0+260+ 78+ 93+ 17=502
+
+Hexagonal Stagger 57 (4 rows, Bumblebee, thumb cluster is rendered outside)
+--------------------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹|      [`~][1!][2@][3#][4$] | [--][7&][8*][9(][0)][\|]
+  URoll  95.6« 61.9«|        0   0   0 / 0 / 0   \    \ 0 \ 0 \ 0   0   0
+   WLSB  78.7  63.8‹|    [--][+=] [Q] [W] [E][5%] | [6^] [I] [O] [P][[{][]}]
+Scissor  25.2   9.9 |          0   1 /12 /98 / 0 /   0  \63 \60 \18   0   0
+    SFB  49.5‹ 45.0‹|      [-_] [A] [S] [D] [R] |  [Y] [U] [K] [L][;:]['"]
+  Runs          ABC |        0  70 /55 /32 /54   \ 13  22 \ 5 \34 \ 1   0
+L 1.70  RRoll  14.6«|    [^^] [Z] [X] [C] [F] [T] \  [H] [J][,<][.>][/?][^^]
+R 1.49  Redir  31.8‹|      0   1 / 2 /29 /18  72   \ 37   2 \10 \ 9 \ 0   0
+Contort  59.1‹      |  [--][__][--]     [V] [G] [B] |  [N] [M]    [--][__][--]
+<35.2% Balanced Raw |       85         / 9  16  12 /   61  22 \        78
+Effort 5031.6 3948.9|  566= 72+ 69+159+181+ 85    |    78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9|  605=  4+ 21+245+287+  0    |     0+260+ 78+ 93+ 17=502
+
+Hexagonal 44 (3 rows, symmetric-ish row stagger, Hornet-ish)
+------------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹|
+  URoll  95.6« 61.9«|
+   WLSB  78.7  63.8‹|  [--][+=] [Q] [W] [E] [R] |  [Y] [U] [I] [O] [P][[{][]}]
+Scissor  25.2   9.9 |        0   1 /12 /98 /54   \ 13  22 \63 \60 \18   0   0
+    SFB  49.5‹ 45.0‹|    [-_] [A] [S] [D] [F] [T] \  [H] [J] [K] [L][;:]['"]
+  Runs          ABC |      0  70 /55 /32 /18  72   \ 37   2 \ 5 \34 \ 1   0
+L 1.70  RRoll  14.6«|  [^^] [Z] [X] [C] [V] [G] [B] |  [N] [M][,<][.>][/?][^^]
+R 1.49  Redir  31.8‹|    0   1 / 2 /29 / 9  16  12 /   61  22 \10 \ 9 \ 0   0
+Contort  59.1‹      |                [--][__][--] | [--][__][--]
+<35.2% Balanced Raw |                     85      |      78
+Effort 5031.6 3948.9|  566= 72+ 69+159+181+ 85    |    78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9|  605=  4+ 21+245+287+  0    |     0+260+ 78+ 93+ 17=502
+
+Hexagonal Stagger 46 (3 rows, Hornet)
+--------------------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹|    [--][+=] [Q] [W] [E][--] | [--] [I] [O] [P][[{][]}]
+  URoll  95.6« 61.9«|          0   1 /12 /98 /   /      \63 \60 \18   0   0
+   WLSB  78.7  63.8‹|      [-_] [A] [S] [D] [R] |  [Y] [U] [K] [L][;:]['"]
+Scissor  25.2   9.9 |        0  70 /55 /32 /54   \ 13  22 \ 5 \34 \ 1   0
+    SFB  49.5‹ 45.0‹|    [^^] [Z] [X] [C] [F] [T] \  [H] [J][,<][.>][/?][^^]
+  Runs          ABC |      0   1 / 2 /29 /18  72   \ 37   2 \10 \ 9 \ 0   0
+L 1.70  RRoll  14.6«|                   [V] [G] [B] |  [N] [M]
+R 1.49  Redir  31.8‹|                  / 9  16  12 /   61  22 \
+Contort  59.1‹      |                [--][__][--] | [--][__][--]
+<35.2% Balanced Raw |                     85      |      78
+Effort 5031.6 3948.9|  566= 72+ 69+159+181+ 85    |    78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9|  605=  4+ 21+245+287+  0    |     0+260+ 78+ 93+ 17=502
+
+Hexagonal Stagger 38 (3 rows, Mantis v1.0)
+--------------------
+          AB    A_B |      >>> Score+Constraint 4270.2 +1000.0 = 5270.2 <<<
+  DRoll  52.1‹ 27.6‹|        [ J] [Q] [W] [E]     |      [I] [O] [P]['"]
+  URoll  95.6« 61.9«|          2   1 /12 /98      |      63 \60 \18   0
+   WLSB  78.7  63.8‹|      [^^] [A] [S] [D] [R]   |    [U] [K] [L] [B][^^]
+Scissor  25.2   9.9 |        0  70 /55 /32 /54    |    22 \ 5 \34 \12   0
+    SFB  49.5‹ 45.0‹|         [Z] [X] [C] [F] [T] |  [Y] [N][,<][.>][/?]
+  Runs          ABC |          1 / 2 /29 /18  72  |  13  61 \10 \ 9 \ 0
+L 1.70  RRoll  14.6«|                   [V] [G]   |    [H] [M]
+R 1.49  Redir  31.8‹|                  / 9  16    |    37  22 \
+Contort  59.1‹      |                [--][__][--] | [--][__][--]
+<35.2% Balanced Raw |                     85      |      78
+Effort 5031.6 3948.9|  566= 72+ 69+159+181+ 85    |    78+156+ 78+103+ 19=434
+Travel 1095.5 1004.9|  605=  4+ 21+245+287+  0    |     0+260+ 78+ 93+ 17=502
+
+
+Done
+====
 
 How to ignore ranking output and manually edited layouts in ranking?
 ====================================================================
@@ -53,6 +319,9 @@ How to ignore ranking output and manually edited layouts in ranking?
 
 Setting targets for scores with curves
 ======================================
+This was replaced with a piecewise linear function with a defined slope given
+"factor".
+
 Applying a curve to a score. Use a power function with exponent p and slope = 1
 at the target value T. For p > 1, the slope is < 1 for x < T, or > 1 for x > T.
 For scores with negative weight, use the equivalent root function (p < 1).
